@@ -1,0 +1,54 @@
+# ===================================================================
+# Momentum Trader Charting App - Python Backend Dependencies
+# ===================================================================
+#
+# INSTALLATION:
+#   cd momentum-trader-charting/backend
+#   python -m venv venv
+#   venv\Scripts\activate  # On Windows
+#   source venv/bin/activate  # On Mac/Linux
+#   pip install -r requirements.txt
+#
+# PREREQUISITES:
+#   - Momentum Trader app must be set up with valid Schwab tokens
+#   - Tokens are shared between apps (per-machine, not per-app)
+#
+# Python Version: 3.10+ recommended (tested with 3.12, 3.13)
+# ===================================================================
+
+# Web Framework
+fastapi>=0.108.0
+uvicorn>=0.25.0
+
+# Schwab API (read-only access, shares tokens with main app)
+schwab-py>=1.5.1
+
+# Configuration
+pyyaml>=6.0.1
+
+# File Watching (for real-time watchlist updates)
+watchdog>=3.0.0
+
+# HTTP Client
+httpx>=0.26.0
+
+# WebSocket Support (for future real-time features)
+websockets>=12.0
+python-socketio>=5.10.0
+
+# ===================================================================
+# DATA SOURCES
+# ===================================================================
+# This app reads data from the sibling momentum-trader directory:
+#
+# Watchlist Data:
+#   - ../momentum-trader/data/watchlist_state.json
+#   - ../momentum-trader/data/runners.json
+#
+# Schwab Credentials (READ-ONLY):
+#   - ../momentum-trader/config/credentials.yaml
+#   - ../momentum-trader/data/tokens/schwab_tokens.json
+#
+# The charting app NEVER writes to these files.
+# Token refresh is handled by the main momentum-trader app.
+# ===================================================================
