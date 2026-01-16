@@ -10,8 +10,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import asyncio
-import signal
-import os
 from api.routes import router
 from services.file_watcher import start_file_watchers, stop_file_watchers
 from core.config import load_config
@@ -54,11 +52,15 @@ async def health_check():
 @app.post("/api/shutdown")
 async def shutdown():
     """Graceful shutdown endpoint"""
-    def do_shutdown():
-        os.kill(os.getpid(), signal.SIGTERM)
+    import sys
 
-    # Schedule shutdown after response is sent
-    asyncio.get_event_loop().call_later(0.5, do_shutdown)
+    async def do_shutdown():
+        await asyncio.sleep(0.5)
+        # Use sys.exit instead of signal on Windows for cleaner shutdown
+        sys.exit(0)
+
+    # Schedule shutdown as async task
+    asyncio.create_task(do_shutdown())
     return {"status": "shutting_down"}
 
 
