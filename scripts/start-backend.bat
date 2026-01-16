@@ -1,3 +1,4 @@
 @echo off
-cd /d "%~dp0\..\backend"
-python main.py
+REM Start backend script - delegates to main launcher for auto-detection
+cd /d "%~dp0\.."
+call "Momentum Trader Charts.bat"

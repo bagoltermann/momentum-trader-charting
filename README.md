@@ -112,4 +112,10 @@ The backend runs on `http://localhost:8081`:
 - Phase 3: Real-time Integration (WebSocket events from main app)
 - Phase 4: Advanced Features (pattern overlays, trade entry panels)
 
-See `../momentum-trader/docs/CHARTING_APP_DESIGN.md` for full design document.
+See [docs/CHARTING_APP_DESIGN.md](docs/CHARTING_APP_DESIGN.md) for full design document.
+
+## Documentation
+
+- [FEATURE_SUGGESTIONS.md](FEATURE_SUGGESTIONS.md) - Feature tracking (implemented and planned)
+- [docs/CHARTING_APP_DESIGN.md](docs/CHARTING_APP_DESIGN.md) - Full design document
+- [session-notes/](session-notes/) - Development session logs

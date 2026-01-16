@@ -4,13 +4,17 @@ import path from 'path'
 
 export default defineConfig({
   plugins: [react()],
+  root: './src/renderer',
   base: './',
   build: {
-    outDir: 'dist/renderer',
+    outDir: '../../dist/renderer',
   },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src/renderer'),
     },
+  },
+  server: {
+    port: 5173,
   },
 })

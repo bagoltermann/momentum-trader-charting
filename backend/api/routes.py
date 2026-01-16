@@ -1,8 +1,11 @@
 """API routes for charting app backend"""
 from fastapi import APIRouter, HTTPException
 from typing import Optional
+from pathlib import Path
+import json
 from services.schwab_client import ChartSchwabClient
 from services.file_watcher import get_cached_watchlist, get_cached_runners
+from core.config import load_config
 
 router = APIRouter()
 
@@ -83,3 +86,30 @@ async def get_quote(symbol: str):
     if quote is None:
         raise HTTPException(status_code=404, detail=f"No quote for {symbol}")
     return quote
+
+
+@router.get("/trade-history")
+async def get_trade_history():
+    """Get trade history from momentum-trader's trade_outcomes.jsonl"""
+    config = load_config()
+    data_dir = Path(config['data_sources']['momentum_trader']['data_dir'])
+    outcomes_path = data_dir / 'paper_trading' / 'trade_outcomes.jsonl'
+
+    if not outcomes_path.exists():
+        return []
+
+    trades = []
+    try:
+        with open(outcomes_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        trade = json.loads(line)
+                        trades.append(trade)
+                    except json.JSONDecodeError:
+                        continue
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load trade history: {e}")
+
+    return trades

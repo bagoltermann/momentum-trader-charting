@@ -1,6 +1,13 @@
 import { create } from 'zustand'
 import axios from 'axios'
 
+interface LLMAnalysis {
+  catalyst_type?: string
+  sentiment?: string
+  catalyst_strength?: number
+  recommendation?: string
+}
+
 interface WatchlistItem {
   symbol: string
   price: number
@@ -9,6 +16,8 @@ interface WatchlistItem {
   float: number
   runner_status?: string
   quality_score?: number
+  llm_analysis?: LLMAnalysis
+  has_definitive_catalyst?: boolean
 }
 
 interface WatchlistState {

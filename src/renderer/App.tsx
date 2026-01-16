@@ -1,15 +1,28 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useMemo } from 'react'
 import { Header } from './components/layout/Header'
 import { Sidebar } from './components/layout/Sidebar'
 import { MultiChartGrid } from './components/charts/MultiChartGrid'
 import { WatchlistHeatmap } from './components/panels/WatchlistHeatmap'
+import { RunnersPanel } from './components/panels/RunnersPanel'
+import { AnalysisPanels } from './components/panels/AnalysisPanels'
 import { StatusBar } from './components/layout/StatusBar'
 import { useWatchlistStore } from './store/watchlistStore'
 import { useChartStore } from './store/chartStore'
+import { useRunners } from './hooks/useRunners'
 
 function App() {
   const { watchlist, fetchWatchlist, connectionStatus } = useWatchlistStore()
   const { selectedSymbol, setSelectedSymbol } = useChartStore()
+  const { runners } = useRunners()
+
+  // Get top 4 runners by quality score for secondary charts (excluding selected symbol)
+  const secondaryRunnerSymbols = useMemo(() => {
+    return runners
+      .filter(r => r.symbol !== selectedSymbol)
+      .sort((a, b) => b.quality_score - a.quality_score)
+      .slice(0, 4)
+      .map(r => r.symbol)
+  }, [runners, selectedSymbol])
 
   useEffect(() => {
     // Initial fetch
@@ -29,9 +42,21 @@ function App() {
           selectedSymbol={selectedSymbol}
           onSelectSymbol={setSelectedSymbol}
         />
-        <MultiChartGrid
-          primarySymbol={selectedSymbol}
-          secondarySymbols={watchlist.slice(0, 4).map(s => s.symbol).filter(s => s !== selectedSymbol)}
+        <div className="center-content">
+          <MultiChartGrid
+            primarySymbol={selectedSymbol}
+            secondarySymbols={secondaryRunnerSymbols}
+            runners={runners}
+          />
+          <AnalysisPanels
+            selectedSymbol={selectedSymbol}
+            watchlist={watchlist}
+            runners={runners}
+          />
+        </div>
+        <RunnersPanel
+          selectedSymbol={selectedSymbol}
+          onSelectSymbol={setSelectedSymbol}
         />
       </div>
       <WatchlistHeatmap

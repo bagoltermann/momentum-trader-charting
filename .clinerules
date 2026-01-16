@@ -1,0 +1,283 @@
+# Claude Code Rules for Momentum Trader Charting Project
+
+## Project Context
+This is a companion charting application for the Momentum Trader project. It provides real-time charting, heatmaps, and visualization for momentum gap trading. The project has a Python FastAPI backend and an Electron frontend.
+
+## Project Relationship
+- **Parent Project**: `momentum-trader` - The main trading application
+- **This Project**: `momentum-trader-charting` - Companion visualization app
+- **Data Source**: Reads from momentum-trader's data directory
+- **Dependency**: Requires momentum-trader to be installed for data access
+
+## Environment Architecture
+- **Development (MacBook)**: VS Code with Claude Code - `~/trading-projects/momentum-trader-charting/`
+- **Development (Windows)**: VS Code with Claude Code - `C:\Users\bagol\trading-projects\momentum-trader-charting\`
+- **Bridge**: GitHub repository connects all environments
+- **Workflow**: Bidirectional - Either machine can develop, push to GitHub, pull on the other
+
+### Bidirectional Development Rules
+1. **ALWAYS pull before starting work**: `git pull origin main`
+2. **ALWAYS commit and push when done**: Complete work sessions with push to GitHub
+3. **Check for uncommitted changes**: Run `git status` at session start
+4. **Resolve conflicts immediately**: If pull fails due to conflicts, resolve before proceeding
+
+## Session Documentation Requirements
+
+### ALWAYS Update Session Notes
+After completing work or at user request, update session documentation:
+
+1. **Create dated session file**: `session-notes/YYYY-MM-DD.md`
+2. **Update index**: `session-notes-index.md` - add entry to table
+3. **File size target**: 1,000-2,000 lines per session (optimal for performance)
+
+### Session File Structure
+Each session must include:
+- **Status** - High-level summary
+- **Session Overview** - Numbered list of topics
+- **Work Completed** - Detailed breakdown with code snippets
+- **Testing Checklist** - Verification steps
+- **Files Modified** - List with descriptions and commit hashes
+- **Key Takeaways** - Lessons learned
+- **Next Steps** - Follow-up tasks
+
+## Documentation Organization
+
+### Directory Structure
+```
+momentum-trader-charting/
+├── docs/                          # Technical documentation
+│   └── archive/                   # Historical docs (completed phases, old PRs)
+├── session-notes/                 # Daily development session notes
+├── FEATURE_SUGGESTIONS.md         # Feature tracking (root - single source of truth)
+└── *.md (root)                    # Active guides and references
+```
+
+### Where to Put New Documents
+
+| Type | Location | Examples |
+|------|----------|----------|
+| Technical specs | `docs/` | Architecture, API design, implementation plans |
+| Setup guides | Root (`*.md`) | README.md, STARTUP_GUIDE.md |
+| Historical/completed | `docs/archive/` | Old phase docs, completed feature specs |
+| Session notes | `session-notes/` | Daily development logs |
+| Feature tracking | Root | FEATURE_SUGGESTIONS.md (single file) |
+
+### FEATURE_SUGGESTIONS.md Usage
+
+**Location**: Root directory (do not move)
+
+**Purpose**: Single source of truth for ALL feature tracking - both implemented and planned.
+
+**When to Update FEATURE_SUGGESTIONS.md**:
+1. **After implementing a feature** - Mark status as ✅ IMPLEMENTED, add session reference
+2. **When discovering enhancement ideas** - Add to appropriate phase section with status NOT IMPLEMENTED
+3. **When starting a feature** - Update status to PARTIALLY IMPLEMENTED
+
+**Structure**:
+- Table of Contents at top for navigation
+- "Recently Implemented" section for completed features
+- Phase-based sections for planned work (Phase 1-4)
+- Infrastructure section for non-feature enhancements
+
+**Status Markers**:
+- `✅ IMPLEMENTED` - Feature is complete
+- `NOT IMPLEMENTED` - Planned but not started
+- `PARTIALLY IMPLEMENTED` - Some work done, more needed
+- `BLOCKED` - Waiting on external dependency
+
+**Do NOT**:
+- Create separate feature tracking documents
+- Split into multiple files (keep single source of truth)
+- Duplicate enhancement ideas across documents
+
+**Do**:
+- Use Ctrl+F to search before adding (avoid duplicates)
+- Include priority level
+- Link to source session notes with `**Source**: [session-notes/YYYY-MM-DD.md](session-notes/YYYY-MM-DD.md)`
+- Add implementation details when features are completed
+
+## Project Structure
+
+```
+momentum-trader-charting/
+├── backend/                    # Python FastAPI backend
+│   ├── main.py                 # Entry point
+│   ├── api/                    # API routes
+│   ├── core/                   # Config, utilities
+│   ├── services/               # File watchers, data processing
+│   └── venv/                   # Virtual environment
+├── frontend/                   # Electron app (future)
+├── config/                     # Configuration files
+│   └── charting.yaml           # Main config (auto-generated by startup script)
+├── docs/                       # Technical documentation
+│   └── archive/                # Historical/completed docs
+├── scripts/                    # Utility scripts
+├── session-notes/              # Development session notes
+├── FEATURE_SUGGESTIONS.md      # Feature tracking (single source of truth)
+├── Momentum Trader Charts.bat  # Windows smart launcher
+└── Momentum Trader Charts.sh   # Linux/Mac smart launcher
+```
+
+## Configuration Management
+
+### Auto-Detection System
+The startup scripts (`Momentum Trader Charts.bat` / `.sh`) automatically:
+1. Detect the charting app location
+2. Detect the momentum-trader location
+3. Update `config/charting.yaml` with absolute paths
+4. Create `momentum-trader/data` directory if missing
+
+### Config File Structure
+```yaml
+data_sources:
+  momentum_trader:
+    data_dir: "<absolute-path-to-momentum-trader>/data"
+    api_url: "http://localhost:8080"
+```
+
+### When Modifying Config
+- The `config/charting.yaml` is auto-generated by startup scripts
+- Manual edits will be overwritten on next startup
+- To change defaults, edit the startup scripts directly
+
+## Task Management with TodoWrite
+
+### When to Use TodoWrite
+Use the TodoWrite tool proactively for:
+- **Complex multi-step tasks** - Tasks requiring 3 or more distinct steps
+- **Non-trivial implementations** - Tasks requiring careful planning
+- **User provides multiple tasks** - When given numbered or comma-separated lists
+- **Planning work** - Breaking down larger tasks into smaller steps
+
+### When NOT to Use TodoWrite
+Skip TodoWrite for:
+- Single, straightforward tasks
+- Trivial operations completable in 1-2 simple steps
+- Purely conversational or informational requests
+
+### Task Format Requirements
+Each task must have TWO forms:
+- **content**: Imperative form (e.g., "Add chart component")
+- **activeForm**: Present continuous form (e.g., "Adding chart component")
+
+## Git Workflow
+
+### Standard Commit Process
+```bash
+git add .
+git commit -m "Descriptive message"
+git push origin main
+```
+
+### User Must Pull on Other Machine
+Always remind user to pull:
+```bash
+git pull origin main
+```
+
+## Code Standards
+
+### Backend (Python/FastAPI)
+
+#### Error Handling
+- Add comprehensive try-catch blocks for critical operations
+- Log errors with full context and traceback
+- Never let exceptions crash the app silently
+
+#### File Watching
+- Use watchdog for file system monitoring
+- Handle FileNotFoundError gracefully (directories may not exist)
+- Validate paths before starting watchers
+
+#### WebSocket
+- Implement proper connection handling
+- Send structured JSON messages
+- Handle disconnections gracefully
+
+### Frontend (Electron/TypeScript) - Future
+
+#### Component Structure
+- Use functional components with hooks
+- Keep components focused and single-purpose
+- Separate presentation from logic
+
+### Platform Compatibility
+
+#### Multi-Platform Requirement
+**MANDATORY**: Code must run on Mac, Windows, and Linux.
+
+#### ASCII-Only Character Encoding
+**CRITICAL RULE**: Use ONLY ASCII characters in logging and console output.
+
+**Why**: Windows console uses cp1252 codec which cannot encode Unicode.
+
+**Rules**:
+- ❌ NEVER use Unicode emojis in logger/console output
+- ✅ ALWAYS use ASCII text markers: `[WARNING]`, `[OK]`, `[ERROR]`, `[INFO]`
+
+#### Path Handling
+- Use `pathlib.Path` for cross-platform path handling
+- Never hardcode path separators (`/` or `\`)
+- Always validate paths exist before use
+
+## Testing Reminders
+
+### After Code Changes - COMMIT WORKFLOW
+1. **Ask user if ready to commit**
+2. **Create commit** with descriptive message
+3. **Push to GitHub**
+4. **Tell user to pull on other machine** with explicit command
+5. **User tests**
+6. **User reports results**
+7. **Update session notes**
+
+### Commit Message Format
+```
+<type>: <description>
+
+<optional body with details>
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+```
+
+## Common Patterns
+
+### When Debugging Startup Errors
+1. Check if momentum-trader is installed
+2. Verify the data directory exists
+3. Check config/charting.yaml has correct paths
+4. Review file watcher initialization
+
+### When Adding New Features
+1. Check existing patterns in momentum-trader
+2. Use consistent naming and structure
+3. Add error handling
+4. Update relevant documentation
+5. Provide testing checklist
+6. Document in session notes
+
+### When Integrating with Momentum Trader
+1. Read from momentum-trader's data directory (read-only)
+2. Connect to momentum-trader's API if needed
+3. Never modify momentum-trader's files directly
+4. Handle missing data gracefully
+
+## Performance Considerations
+- Keep session note files under 2,000 lines
+- Use dated files instead of one massive file
+- Link to code instead of duplicating large blocks
+- Commit frequently with clear messages
+
+## Communication Style
+- Be concise but complete
+- Use code references with line numbers
+- Provide clear next steps
+- Ask clarifying questions when ambiguous
+- Summarize changes before committing
+
+---
+
+**Last Updated**: 2026-01-15
+**Maintain this file** as project guidelines evolve
