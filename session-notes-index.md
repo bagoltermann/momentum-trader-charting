@@ -7,6 +7,7 @@ This index tracks all development sessions for the Momentum Trader Charting comp
 
 | Date | Topics | Key Changes | Status |
 |------|--------|-------------|--------|
+| 2026-01-16 | Backend event loop bugfix | Fixed asyncio shutdown causing chart switching issues | ✅ Complete |
 | 2026-01-15 | Project setup, smart launcher, Phase 3 panels, Exit button, hidden launch | Startup scripts, .clinerules, analysis panels, Exit button + hidden terminal launch | ✅ Complete |
 
 ## Quick Links
@@ -21,4 +22,4 @@ This index tracks all development sessions for the Momentum Trader Charting comp
 
 ---
 
-**Last Updated**: 2026-01-15
+**Last Updated**: 2026-01-16

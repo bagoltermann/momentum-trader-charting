@@ -40,6 +40,25 @@ This document tracks feature enhancements - both implemented and planned.
 
 ## Recently Implemented ✅
 
+### Backend Event Loop Bugfix (v1.2.1) - Jan 2026
+**Status**: ✅ Complete
+**Source**: [session-notes/2026-01-16.md](session-notes/2026-01-16.md)
+
+**Problem Solved**:
+- Chart switching showed wrong data or no data after Exit button feature
+- Backend became unresponsive due to asyncio event loop hang
+- `asyncio.get_event_loop().call_later()` with `signal.SIGTERM` caused issues on Windows
+
+**Fix**:
+- Replaced deprecated `asyncio.get_event_loop()` with `asyncio.create_task()`
+- Changed from `signal.SIGTERM` to `sys.exit(0)` for cross-platform compatibility
+- Made shutdown function properly async
+
+**Files**:
+- `backend/main.py` - Fixed `/api/shutdown` endpoint
+
+---
+
 ### Exit Button and Hidden Terminal Launch (v1.2.0) - Jan 2026
 **Status**: ✅ Complete
 **Source**: [session-notes/2026-01-15.md](session-notes/2026-01-15.md#session-3---exit-button-and-hidden-terminal-launch)
@@ -447,5 +466,5 @@ Share chart screenshots to chat channels.
 
 ---
 
-**Last Updated**: 2026-01-15
+**Last Updated**: 2026-01-16
 **Maintain this file** as features are implemented and new ideas emerge
