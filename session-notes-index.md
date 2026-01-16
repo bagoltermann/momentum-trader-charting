@@ -7,7 +7,7 @@ This index tracks all development sessions for the Momentum Trader Charting comp
 
 | Date | Topics | Key Changes | Status |
 |------|--------|-------------|--------|
-| 2026-01-15 | Project setup, smart launcher scripts, Phase 3 panels | Created startup scripts, .clinerules, fixed Similar Past Setups panel | ✅ Complete |
+| 2026-01-15 | Project setup, smart launcher, Phase 3 panels, Exit button, hidden launch | Startup scripts, .clinerules, analysis panels, Exit button + hidden terminal launch | ✅ Complete |
 
 ## Quick Links
 - [.clinerules](.clinerules) - Project rules and guidelines

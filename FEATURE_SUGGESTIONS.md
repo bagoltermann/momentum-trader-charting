@@ -40,6 +40,42 @@ This document tracks feature enhancements - both implemented and planned.
 
 ## Recently Implemented ✅
 
+### Exit Button and Hidden Terminal Launch (v1.2.0) - Jan 2026
+**Status**: ✅ Complete
+**Source**: [session-notes/2026-01-15.md](session-notes/2026-01-15.md#session-3---exit-button-and-hidden-terminal-launch)
+
+**Problem Solved**:
+- No way to cleanly exit app (had to use Task Manager or close terminal)
+- Terminal window stayed open during app use (unprofessional)
+- Needed cross-platform solution (Windows, macOS, Linux)
+
+**Features**:
+1. **Exit Button** - Red button in header
+   - IPC chain: UI → preload → main → HTTP shutdown API → app.quit()
+   - Signals backend to shutdown gracefully
+   - Cleans up all processes (Vite, Electron, Backend)
+
+2. **Hidden Terminal Launch** - Two-stage architecture
+   - Stage 1: Batch/shell script does path detection, config generation (visible briefly)
+   - Stage 2: Python launcher runs headless with file logging
+   - **Windows**: Uses `pythonw.exe` (Python without console) + `start /B`
+   - **macOS/Linux**: Uses `nohup` + `disown` (background process)
+
+3. **File Logging** - Logs to `logs/launcher.log`
+   - Auto-detects headless mode
+   - Essential for debugging when no console
+
+**Files**:
+- `src/main/preload.ts` - exitApp IPC method
+- `src/main/main.ts` - exit-app handler
+- `src/renderer/components/layout/Header.tsx` - Exit button UI
+- `src/renderer/styles/global.css` - Button styling
+- `launcher.py` - File logging for headless mode
+- `Momentum Trader Charts.bat` - Windows hidden launch
+- `Momentum Trader Charts.sh` - macOS/Linux hidden launch
+
+---
+
 ### Phase 3 Analysis Panels (v1.1.0) - Jan 2026
 **Status**: ✅ Complete
 **Source**: [session-notes/2026-01-15.md](session-notes/2026-01-15.md#session-2---phase-3-analysis-panels-implementation)

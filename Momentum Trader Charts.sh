@@ -202,7 +202,7 @@ echo "  Data directory: $MOMENTUM_DIR/data"
 echo ""
 
 # ============================================================================
-# ACTIVATE VENV AND START LAUNCHER
+# LAUNCH IN HIDDEN MODE (no terminal window after startup)
 # ============================================================================
 
 echo "Starting Momentum Trader Charts..."
@@ -211,7 +211,7 @@ echo ""
 cd "$CHARTING_DIR/backend"
 
 # Check if venv exists
-if [ ! -f "venv/bin/activate" ]; then
+if [ ! -f "venv/bin/python" ]; then
     echo "  [ERROR] Virtual environment not found"
     echo ""
     echo "  Please run setup first:"
@@ -224,21 +224,21 @@ if [ ! -f "venv/bin/activate" ]; then
     exit 1
 fi
 
-# Activate venv and run launcher
-source venv/bin/activate
 cd "$CHARTING_DIR"
-python3 launcher.py
 
-# Check exit code
-if [ $? -ne 0 ]; then
-    echo ""
-    echo "==================================================================="
-    echo "Application failed to start"
-    echo "==================================================================="
-    echo "See error messages above for details"
-    echo ""
-    read -p "Press Enter to close..."
-    exit 1
-fi
+# Launch in background with nohup (immune to terminal close)
+# Output suppressed - logs go to logs/launcher.log
+nohup "$CHARTING_DIR/backend/venv/bin/python" launcher.py > /dev/null 2>&1 &
 
+# Detach from shell (bash-specific, safe to fail on other shells)
+disown 2>/dev/null
+
+echo "  App is starting in the background..."
+echo "  Check logs/launcher.log for status"
+echo ""
+
+# Brief pause so user sees feedback
+sleep 2
+
+echo "App launched. You can close this terminal."
 exit 0

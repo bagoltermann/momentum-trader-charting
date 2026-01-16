@@ -2,6 +2,8 @@
 """
 Cross-Platform Launcher for Momentum Trader Charts
 Launches both the Python backend and Electron frontend
+
+Supports headless operation (no console window) with file logging.
 """
 import subprocess
 import sys
@@ -9,17 +11,58 @@ import time
 import platform
 import signal
 import os
+import logging
 from pathlib import Path
 from urllib.request import urlopen
 from urllib.error import URLError
 
 # Global for signal handler access
 _launcher = None
+_logger = None
+_headless = False
+
+
+def setup_logging(base_dir: Path):
+    """Setup file logging for headless operation"""
+    global _logger, _headless
+
+    log_dir = base_dir / 'logs'
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / 'launcher.log'
+
+    # Configure file logging
+    logging.basicConfig(
+        filename=str(log_file),
+        level=logging.INFO,
+        format='%(asctime)s [%(levelname)s] %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    _logger = logging.getLogger('launcher')
+
+    # Detect if running headless (pythonw on Windows, or no stdout)
+    _headless = (
+        not sys.stdout or
+        not hasattr(sys.stdout, 'write') or
+        (platform.system() == 'Windows' and 'pythonw' in sys.executable.lower())
+    )
+
+    return _logger
 
 
 def log(msg):
-    """Print with flush for pythonw compatibility"""
-    print(msg, flush=True)
+    """Log to file and console (if available)"""
+    global _logger, _headless
+
+    # Always log to file if logger is configured
+    if _logger:
+        _logger.info(msg)
+
+    # Also print to console if not headless
+    if not _headless:
+        try:
+            print(msg, flush=True)
+        except Exception:
+            pass  # Ignore print errors in headless mode
 
 
 class ChartingLauncher:
@@ -354,6 +397,9 @@ class ChartingLauncher:
         """Main launcher workflow"""
         global _launcher
         _launcher = self
+
+        # Setup logging first (for headless operation)
+        setup_logging(self.base_dir)
 
         # Setup signal handlers
         signal.signal(signal.SIGINT, signal_handler)

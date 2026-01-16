@@ -51,3 +51,22 @@ ipcMain.handle('get-config', async () => {
     mainAppUrl: 'http://localhost:8080',
   }
 })
+
+// Exit app handler - signals backend to shutdown, then quits
+ipcMain.handle('exit-app', async () => {
+  try {
+    // Signal backend to shutdown (launcher watches for Electron exit and cleans up)
+    const http = require('http')
+    const req = http.request({
+      hostname: 'localhost',
+      port: 8081,
+      path: '/api/shutdown',
+      method: 'POST',
+    })
+    req.on('error', () => {}) // Ignore errors - backend might already be down
+    req.end()
+  } catch (e) {
+    // Ignore - backend might already be down
+  }
+  app.quit()
+})

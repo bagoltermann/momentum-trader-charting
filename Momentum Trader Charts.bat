@@ -168,7 +168,7 @@ echo   Data directory: %MOMENTUM_DIR%\data
 echo.
 
 REM ============================================================================
-REM ACTIVATE VENV AND START LAUNCHER
+REM LAUNCH IN HIDDEN MODE (no terminal window)
 REM ============================================================================
 
 echo Starting Momentum Trader Charts...
@@ -176,8 +176,8 @@ echo.
 
 cd /d "%CHARTING_DIR%\backend"
 
-REM Check if venv exists
-IF NOT EXIST "venv\Scripts\activate.bat" (
+REM Check if venv with pythonw exists (pythonw = Python without console)
+IF NOT EXIST "venv\Scripts\pythonw.exe" (
     echo   [ERROR] Virtual environment not found
     echo.
     echo   Please run setup first:
@@ -190,22 +190,18 @@ IF NOT EXIST "venv\Scripts\activate.bat" (
     exit /b 1
 )
 
-REM Activate venv and run launcher
-call venv\Scripts\activate.bat
 cd /d "%CHARTING_DIR%"
-python launcher.py
 
-REM Check exit code
-IF ERRORLEVEL 1 (
-    echo.
-    echo ===================================================================
-    echo Application failed to start
-    echo ===================================================================
-    echo See error messages above for details
-    echo.
-    pause
-    exit /b 1
-)
+REM Launch with pythonw (no console window) in background
+REM The launcher.py will log to logs/launcher.log
+start "" /B "%CHARTING_DIR%\backend\venv\Scripts\pythonw.exe" launcher.py
+
+echo   App is starting in the background...
+echo   Check logs\launcher.log for status
+echo.
+
+REM Brief pause so user sees feedback
+timeout /t 2 /nobreak >nul
 
 exit /b 0
 

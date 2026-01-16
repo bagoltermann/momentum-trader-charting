@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 contextBridge.exposeInMainWorld('electronAPI', {
   getConfig: () => ipcRenderer.invoke('get-config'),
+  exitApp: () => ipcRenderer.invoke('exit-app'),
 })
 
 declare global {
@@ -12,6 +13,7 @@ declare global {
         backendUrl: string
         mainAppUrl: string
       }>
+      exitApp: () => Promise<void>
     }
   }
 }

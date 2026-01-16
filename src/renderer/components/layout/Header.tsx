@@ -4,6 +4,12 @@ import { useWatchlistStore } from '../../store/watchlistStore'
 export function Header() {
   const { connectionStatus, lastUpdate } = useWatchlistStore()
 
+  const handleExit = () => {
+    if (window.electronAPI?.exitApp) {
+      window.electronAPI.exitApp()
+    }
+  }
+
   return (
     <header className="app-header">
       <div className="logo">
@@ -18,6 +24,13 @@ export function Header() {
             Last update: {lastUpdate.toLocaleTimeString()}
           </span>
         )}
+        <button
+          className="exit-btn"
+          onClick={handleExit}
+          title="Exit application"
+        >
+          Exit
+        </button>
       </div>
     </header>
   )

@@ -93,6 +93,24 @@ body {
   color: var(--text-secondary);
 }
 
+/* Exit button */
+.exit-btn {
+  background: rgba(255, 23, 68, 0.2);
+  color: var(--accent-red);
+  border: 1px solid var(--accent-red);
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.exit-btn:hover {
+  background: var(--accent-red);
+  color: white;
+}
+
 /* Sidebar styles */
 .sidebar {
   width: 200px;
