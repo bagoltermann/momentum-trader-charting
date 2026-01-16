@@ -1,6 +1,6 @@
 @echo off
 REM ============================================================================
-REM Momentum Trader Charts - Smart Desktop Launcher for Windows
+REM Momentum Trader Charts - Desktop Launcher for Windows
 REM ============================================================================
 REM
 REM This file can be copied ANYWHERE (Desktop, Documents, etc.) and will work!
@@ -47,7 +47,7 @@ FOR %%D IN (
     "D:\trading-projects\momentum-trader-charting"
     "D:\momentum-trader-charting"
 ) DO (
-    IF EXIST "%%~D\backend\main.py" (
+    IF EXIST "%%~D\launcher.py" (
         SET "CHARTING_DIR=%%~D"
         echo   Found charting app: !CHARTING_DIR!
         goto :find_momentum
@@ -102,8 +102,8 @@ echo.
 echo Verifying projects...
 
 REM Verify charting app
-IF NOT EXIST "%CHARTING_DIR%\backend\main.py" (
-    echo   [ERROR] Charting app backend not found
+IF NOT EXIST "%CHARTING_DIR%\launcher.py" (
+    echo   [ERROR] Charting app launcher not found
     goto :error_charting_not_found
 )
 echo   Charting app: OK
@@ -168,10 +168,10 @@ echo   Data directory: %MOMENTUM_DIR%\data
 echo.
 
 REM ============================================================================
-REM ACTIVATE VENV AND START BACKEND
+REM ACTIVATE VENV AND START LAUNCHER
 REM ============================================================================
 
-echo Starting charting backend...
+echo Starting Momentum Trader Charts...
 echo.
 
 cd /d "%CHARTING_DIR%\backend"
@@ -190,9 +190,10 @@ IF NOT EXIST "venv\Scripts\activate.bat" (
     exit /b 1
 )
 
-REM Activate venv and run
+REM Activate venv and run launcher
 call venv\Scripts\activate.bat
-python main.py
+cd /d "%CHARTING_DIR%"
+python launcher.py
 
 REM Check exit code
 IF ERRORLEVEL 1 (

@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================================
-# Momentum Trader Charts - Smart Desktop Launcher for Linux/Mac
+# Momentum Trader Charts - Desktop Launcher for macOS/Linux
 # ============================================================================
 #
 # This file can be copied ANYWHERE (Desktop, Documents, etc.) and will work!
@@ -45,7 +45,7 @@ else
 
     FOUND=0
     for DIR in "${CHARTING_SEARCH_PATHS[@]}"; do
-        if [ -f "$DIR/backend/main.py" ]; then
+        if [ -f "$DIR/launcher.py" ]; then
             CHARTING_DIR="$DIR"
             echo "  Found charting app: $CHARTING_DIR"
             FOUND=1
@@ -140,8 +140,8 @@ echo ""
 echo "Verifying projects..."
 
 # Verify charting app
-if [ ! -f "$CHARTING_DIR/backend/main.py" ]; then
-    echo "  [ERROR] Charting app backend not found"
+if [ ! -f "$CHARTING_DIR/launcher.py" ]; then
+    echo "  [ERROR] Charting app launcher not found"
     echo ""
     echo "Path: $CHARTING_DIR"
     read -p "Press Enter to close..."
@@ -202,10 +202,10 @@ echo "  Data directory: $MOMENTUM_DIR/data"
 echo ""
 
 # ============================================================================
-# ACTIVATE VENV AND START BACKEND
+# ACTIVATE VENV AND START LAUNCHER
 # ============================================================================
 
-echo "Starting charting backend..."
+echo "Starting Momentum Trader Charts..."
 echo ""
 
 cd "$CHARTING_DIR/backend"
@@ -224,9 +224,10 @@ if [ ! -f "venv/bin/activate" ]; then
     exit 1
 fi
 
-# Activate venv and run
+# Activate venv and run launcher
 source venv/bin/activate
-python3 main.py
+cd "$CHARTING_DIR"
+python3 launcher.py
 
 # Check exit code
 if [ $? -ne 0 ]; then

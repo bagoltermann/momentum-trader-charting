@@ -17,6 +17,7 @@ from typing import Optional, Dict, List
 _cached_watchlist: Optional[List[Dict]] = None
 _cached_runners: Optional[Dict] = None
 _cache_lock = threading.Lock()
+_observer: Optional[Observer] = None
 
 
 class DataFileHandler(FileSystemEventHandler):
@@ -65,6 +66,8 @@ class DataFileHandler(FileSystemEventHandler):
 
 def start_file_watchers(data_dir: str):
     """Start watching data files"""
+    global _observer
+
     handler = DataFileHandler(data_dir)
 
     # Initial load
@@ -72,10 +75,20 @@ def start_file_watchers(data_dir: str):
     handler._reload_runners()
 
     # Start observer
-    observer = Observer()
-    observer.schedule(handler, data_dir, recursive=False)
-    observer.start()
+    _observer = Observer()
+    _observer.schedule(handler, data_dir, recursive=False)
+    _observer.start()
     print(f"[OK] File watcher started for: {data_dir}")
+
+
+def stop_file_watchers():
+    """Stop the file watcher"""
+    global _observer
+    if _observer:
+        _observer.stop()
+        _observer.join(timeout=5)
+        _observer = None
+        print("[OK] File watcher stopped")
 
 
 def get_cached_watchlist() -> Optional[List[Dict]]:
