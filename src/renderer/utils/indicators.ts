@@ -191,6 +191,322 @@ export function getVWAPZoneColor(distancePercent: number): 'green' | 'yellow' | 
   return 'red'
 }
 
+// =============================================================================
+// Pattern Overlay Types and Detection Functions
+// =============================================================================
+
+/**
+ * Support/Resistance level detection result
+ */
+export interface SupportResistanceLevel {
+  price: number
+  type: 'support' | 'resistance'
+  strength: 'weak' | 'moderate' | 'strong'
+  touchCount: number
+}
+
+/**
+ * Gap zone detection result
+ */
+export interface GapZone {
+  topPrice: number
+  bottomPrice: number
+  type: 'up' | 'down'
+  gapPercent: number
+  startTime: number
+  filled: boolean
+}
+
+/**
+ * Flag/Pennant pattern detection result
+ */
+export interface FlagPennantPattern {
+  detected: boolean
+  type: 'bull_flag' | 'bear_flag' | 'pennant'
+  poleStart: { time: number; price: number }
+  poleEnd: { time: number; price: number }
+  breakoutLevel: number
+  targetPrice: number
+  patternStrength: 'weak' | 'moderate' | 'strong'
+}
+
+/**
+ * Detect Support and Resistance levels using pivot point clustering
+ *
+ * Algorithm:
+ * 1. Find local highs/lows (pivot points) over lookback period
+ * 2. Cluster prices within tolerance (0.5%)
+ * 3. Count touches at each level (more touches = stronger)
+ * 4. Return top 3 support + top 3 resistance levels by strength
+ */
+export function detectSupportResistance(
+  candles: Candle[],
+  lookbackBars: number = 50,
+  tolerance: number = 0.005
+): SupportResistanceLevel[] {
+  if (candles.length < lookbackBars) return []
+
+  const recentCandles = candles.slice(-lookbackBars)
+  const pivotHighs: number[] = []
+  const pivotLows: number[] = []
+
+  // Find pivot highs and lows (local extrema)
+  for (let i = 2; i < recentCandles.length - 2; i++) {
+    const curr = recentCandles[i]
+    const prev1 = recentCandles[i - 1]
+    const prev2 = recentCandles[i - 2]
+    const next1 = recentCandles[i + 1]
+    const next2 = recentCandles[i + 2]
+
+    // Pivot high: higher than 2 candles on each side
+    if (curr.high > prev1.high && curr.high > prev2.high &&
+        curr.high > next1.high && curr.high > next2.high) {
+      pivotHighs.push(curr.high)
+    }
+
+    // Pivot low: lower than 2 candles on each side
+    if (curr.low < prev1.low && curr.low < prev2.low &&
+        curr.low < next1.low && curr.low < next2.low) {
+      pivotLows.push(curr.low)
+    }
+  }
+
+  // Also add recent highs/lows for better coverage
+  const last5 = recentCandles.slice(-5)
+  pivotHighs.push(Math.max(...last5.map(c => c.high)))
+  pivotLows.push(Math.min(...last5.map(c => c.low)))
+
+  // Cluster similar prices and count touches
+  const clusterPrices = (prices: number[], type: 'support' | 'resistance'): SupportResistanceLevel[] => {
+    if (prices.length === 0) return []
+
+    const clusters: { price: number; count: number }[] = []
+
+    for (const price of prices) {
+      // Find existing cluster within tolerance
+      const existingCluster = clusters.find(c =>
+        Math.abs(c.price - price) / c.price < tolerance
+      )
+
+      if (existingCluster) {
+        // Average the price and increment count
+        existingCluster.price = (existingCluster.price * existingCluster.count + price) / (existingCluster.count + 1)
+        existingCluster.count++
+      } else {
+        clusters.push({ price, count: 1 })
+      }
+    }
+
+    // Sort by touch count (descending) and take top 3
+    return clusters
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 3)
+      .map(c => ({
+        price: c.price,
+        type,
+        strength: c.count >= 3 ? 'strong' : c.count >= 2 ? 'moderate' : 'weak',
+        touchCount: c.count
+      }))
+  }
+
+  const resistanceLevels = clusterPrices(pivotHighs, 'resistance')
+  const supportLevels = clusterPrices(pivotLows, 'support')
+
+  return [...resistanceLevels, ...supportLevels]
+}
+
+/**
+ * Detect price gaps in the chart
+ *
+ * Algorithm:
+ * 1. Compare each candle's open vs previous close
+ * 2. If gap > threshold, create GapZone
+ * 3. Track if price has filled the gap in subsequent candles
+ * 4. Return unfilled gaps (most relevant for trading)
+ */
+export function detectGaps(
+  candles: Candle[],
+  minGapPercent: number = 1.0
+): GapZone[] {
+  if (candles.length < 2) return []
+
+  const gaps: GapZone[] = []
+
+  for (let i = 1; i < candles.length; i++) {
+    const prev = candles[i - 1]
+    const curr = candles[i]
+
+    // Check for gap up
+    if (curr.open > prev.close) {
+      const gapPercent = ((curr.open - prev.close) / prev.close) * 100
+      if (gapPercent >= minGapPercent) {
+        gaps.push({
+          topPrice: curr.open,
+          bottomPrice: prev.close,
+          type: 'up',
+          gapPercent,
+          startTime: curr.time,
+          filled: false
+        })
+      }
+    }
+
+    // Check for gap down
+    if (curr.open < prev.close) {
+      const gapPercent = ((prev.close - curr.open) / prev.close) * 100
+      if (gapPercent >= minGapPercent) {
+        gaps.push({
+          topPrice: prev.close,
+          bottomPrice: curr.open,
+          type: 'down',
+          gapPercent,
+          startTime: curr.time,
+          filled: false
+        })
+      }
+    }
+  }
+
+  // Check if gaps have been filled by subsequent price action
+  for (const gap of gaps) {
+    const gapIndex = candles.findIndex(c => c.time === gap.startTime)
+    if (gapIndex === -1) continue
+
+    for (let j = gapIndex; j < candles.length; j++) {
+      const candle = candles[j]
+      // Gap is filled if price trades through the entire gap zone
+      if (gap.type === 'up') {
+        if (candle.low <= gap.bottomPrice) {
+          gap.filled = true
+          break
+        }
+      } else {
+        if (candle.high >= gap.topPrice) {
+          gap.filled = true
+          break
+        }
+      }
+    }
+  }
+
+  // Return only unfilled gaps (limit to 5 most recent)
+  return gaps
+    .filter(g => !g.filled)
+    .slice(-5)
+}
+
+/**
+ * Detect Flag or Pennant consolidation patterns
+ *
+ * Algorithm:
+ * 1. Find strong directional move (5%+ in short time = "pole")
+ * 2. Look for subsequent tight consolidation (3-7 candles, <2% range)
+ * 3. Classify as flag (parallel bounds) or pennant (converging)
+ * 4. Calculate measured move target (pole length projected from breakout)
+ */
+export function detectFlagPennant(
+  candles: Candle[],
+  minPoleMove: number = 0.05,
+  maxConsolidationRange: number = 0.02
+): FlagPennantPattern | null {
+  if (candles.length < 15) return null
+
+  // Look for pole in the recent data (last 20 candles, pole in first 10)
+  const lookback = Math.min(20, candles.length)
+  const recentCandles = candles.slice(-lookback)
+
+  // Find the strongest move (pole) in first half of lookback
+  let bestPole: { start: number; end: number; move: number; direction: 'up' | 'down' } | null = null
+
+  for (let poleLen = 3; poleLen <= 8; poleLen++) {
+    for (let i = 0; i <= lookback - poleLen - 5; i++) {
+      const poleStart = recentCandles[i]
+      const poleEnd = recentCandles[i + poleLen - 1]
+
+      // Bull pole: close > open significantly
+      const bullMove = (poleEnd.close - poleStart.open) / poleStart.open
+      if (bullMove >= minPoleMove) {
+        if (!bestPole || bullMove > bestPole.move) {
+          bestPole = { start: i, end: i + poleLen - 1, move: bullMove, direction: 'up' }
+        }
+      }
+
+      // Bear pole: close < open significantly
+      const bearMove = (poleStart.open - poleEnd.close) / poleStart.open
+      if (bearMove >= minPoleMove) {
+        if (!bestPole || bearMove > bestPole.move) {
+          bestPole = { start: i, end: i + poleLen - 1, move: bearMove, direction: 'down' }
+        }
+      }
+    }
+  }
+
+  if (!bestPole) return null
+
+  // Look for consolidation after the pole
+  const consolidationStart = bestPole.end + 1
+  const consolidationCandles = recentCandles.slice(consolidationStart)
+
+  if (consolidationCandles.length < 3 || consolidationCandles.length > 10) return null
+
+  // Check consolidation range
+  const consHighs = consolidationCandles.map(c => c.high)
+  const consLows = consolidationCandles.map(c => c.low)
+  const consMaxHigh = Math.max(...consHighs)
+  const consMinLow = Math.min(...consLows)
+  const consRange = (consMaxHigh - consMinLow) / consMaxHigh
+
+  if (consRange > maxConsolidationRange) return null
+
+  // Determine pattern type (flag vs pennant)
+  // Pennant: range narrows over time; Flag: range stays parallel
+  const firstHalfRange = Math.max(...consHighs.slice(0, Math.floor(consHighs.length / 2))) -
+                          Math.min(...consLows.slice(0, Math.floor(consLows.length / 2)))
+  const secondHalfRange = Math.max(...consHighs.slice(Math.floor(consHighs.length / 2))) -
+                           Math.min(...consLows.slice(Math.floor(consLows.length / 2)))
+
+  const isConverging = secondHalfRange < firstHalfRange * 0.7
+
+  // Calculate breakout level and target
+  const poleStartCandle = recentCandles[bestPole.start]
+  const poleEndCandle = recentCandles[bestPole.end]
+  const poleHeight = Math.abs(poleEndCandle.close - poleStartCandle.open)
+
+  let breakoutLevel: number
+  let targetPrice: number
+  let patternType: 'bull_flag' | 'bear_flag' | 'pennant'
+
+  if (bestPole.direction === 'up') {
+    breakoutLevel = consMaxHigh
+    targetPrice = breakoutLevel + poleHeight
+    patternType = isConverging ? 'pennant' : 'bull_flag'
+  } else {
+    breakoutLevel = consMinLow
+    targetPrice = breakoutLevel - poleHeight
+    patternType = isConverging ? 'pennant' : 'bear_flag'
+  }
+
+  // Determine strength
+  let strength: 'weak' | 'moderate' | 'strong' = 'weak'
+  if (bestPole.move > 0.08) strength = 'moderate'
+  if (bestPole.move > 0.12 && consRange < 0.015) strength = 'strong'
+  if (isConverging && bestPole.move > 0.08) strength = 'strong'
+
+  return {
+    detected: true,
+    type: patternType,
+    poleStart: { time: poleStartCandle.time, price: poleStartCandle.open },
+    poleEnd: { time: poleEndCandle.time, price: poleEndCandle.close },
+    breakoutLevel,
+    targetPrice,
+    patternStrength: strength
+  }
+}
+
+// =============================================================================
+// Existing Pattern Detection
+// =============================================================================
+
 /**
  * Micro-pullback pattern detection result
  */

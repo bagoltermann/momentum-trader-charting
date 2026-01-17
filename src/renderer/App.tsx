@@ -9,11 +9,13 @@ import { StatusBar } from './components/layout/StatusBar'
 import { useWatchlistStore } from './store/watchlistStore'
 import { useChartStore } from './store/chartStore'
 import { useRunners } from './hooks/useRunners'
+import { useCandleData } from './hooks/useCandleData'
 
 function App() {
   const { watchlist, fetchWatchlist, connectionStatus } = useWatchlistStore()
   const { selectedSymbol, setSelectedSymbol } = useChartStore()
   const { runners } = useRunners()
+  const { rawCandles: primaryRawCandles } = useCandleData(selectedSymbol, '1m')
 
   // Get top 4 runners by quality score for secondary charts (excluding selected symbol)
   const secondaryRunnerSymbols = useMemo(() => {
@@ -52,6 +54,7 @@ function App() {
             selectedSymbol={selectedSymbol}
             watchlist={watchlist}
             runners={runners}
+            rawCandles={primaryRawCandles}
           />
         </div>
         <RunnersPanel

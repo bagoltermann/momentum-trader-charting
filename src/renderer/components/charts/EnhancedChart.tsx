@@ -1,6 +1,15 @@
 import React, { useEffect, useRef, useMemo } from 'react'
 import { createChart, IChartApi, ISeriesApi, CandlestickData, LineData, HistogramData } from 'lightweight-charts'
-import { Candle, calculateVWAPBands, calculateEMA, detectMicroPullback, MicroPullbackPattern } from '../../utils/indicators'
+import {
+  Candle,
+  calculateVWAPBands,
+  calculateEMA,
+  detectMicroPullback,
+  MicroPullbackPattern,
+  SupportResistanceLevel,
+  GapZone,
+  FlagPennantPattern
+} from '../../utils/indicators'
 import { CandleWithVolume } from '../../hooks/useCandleData'
 
 export interface EntryZoneLevel {
@@ -29,6 +38,10 @@ interface EnhancedChartProps {
   entryZones?: EntryZoneLevel[]
   riskReward?: RiskRewardConfig
   detectPatterns?: boolean // Enable micro-pullback pattern detection
+  // Pattern overlays
+  supportResistanceLevels?: SupportResistanceLevel[]
+  gapZones?: GapZone[]
+  flagPennantPattern?: FlagPennantPattern | null
 }
 
 export function EnhancedChart({
@@ -45,6 +58,9 @@ export function EnhancedChart({
   entryZones = [],
   riskReward,
   detectPatterns = true,
+  supportResistanceLevels = [],
+  gapZones = [],
+  flagPennantPattern,
 }: EnhancedChartProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
@@ -251,6 +267,82 @@ export function EnhancedChart({
       })
     }
 
+    // Add Support/Resistance levels
+    if (supportResistanceLevels.length > 0) {
+      const strengthWidths = { weak: 1, moderate: 2, strong: 3 }
+
+      supportResistanceLevels.forEach(level => {
+        const color = level.type === 'resistance' ? '#FF5252' : '#00E676'
+        const lineWidth = strengthWidths[level.strength]
+
+        candlestickSeries.createPriceLine({
+          price: level.price,
+          color: color,
+          lineWidth: lineWidth,
+          lineStyle: 2, // Dashed
+          axisLabelVisible: true,
+          title: `${level.type === 'resistance' ? 'R' : 'S'} $${level.price.toFixed(2)}`,
+        })
+      })
+    }
+
+    // Add Gap zones
+    if (gapZones.length > 0) {
+      gapZones.forEach(gap => {
+        const color = gap.type === 'up' ? '#00E676' : '#FF5252'
+        const opacity = gap.filled ? 0.1 : 0.25
+
+        // Draw gap zone as two price lines
+        candlestickSeries.createPriceLine({
+          price: gap.topPrice,
+          color: color,
+          lineWidth: 1,
+          lineStyle: 3, // Dotted
+          axisLabelVisible: false,
+          title: '',
+        })
+
+        candlestickSeries.createPriceLine({
+          price: gap.bottomPrice,
+          color: color,
+          lineWidth: 1,
+          lineStyle: 3, // Dotted
+          axisLabelVisible: true,
+          title: `Gap ${gap.gapPercent.toFixed(1)}%`,
+        })
+      })
+    }
+
+    // Add Flag/Pennant pattern visualization
+    if (flagPennantPattern && flagPennantPattern.detected) {
+      const strengthColors = {
+        weak: '#FFEB3B',      // Yellow
+        moderate: '#FF9800',  // Orange
+        strong: '#4CAF50',    // Green
+      }
+      const color = strengthColors[flagPennantPattern.patternStrength]
+
+      // Breakout level
+      candlestickSeries.createPriceLine({
+        price: flagPennantPattern.breakoutLevel,
+        color: color,
+        lineWidth: 2,
+        lineStyle: 0, // Solid
+        axisLabelVisible: true,
+        title: `${flagPennantPattern.type.replace('_', ' ').toUpperCase()} BREAKOUT`,
+      })
+
+      // Target price
+      candlestickSeries.createPriceLine({
+        price: flagPennantPattern.targetPrice,
+        color: '#69F0AE',
+        lineWidth: 1,
+        lineStyle: 2, // Dashed
+        axisLabelVisible: true,
+        title: `Target $${flagPennantPattern.targetPrice.toFixed(2)}`,
+      })
+    }
+
     // Add VWAP line
     if (showVWAP && vwap.length > 0) {
       const vwapSeries = chart.addLineSeries({
@@ -366,7 +458,7 @@ export function EnhancedChart({
       resizeObserver.disconnect()
       chart.remove()
     }
-  }, [candles, rawCandles, height, timeframe, showVWAP, showVWAPBands, showVolume, showEMA9, showEMA20, vwap, bands, ema9, ema20, volumeData, entryZones, riskReward, microPullback])
+  }, [candles, rawCandles, height, timeframe, showVWAP, showVWAPBands, showVolume, showEMA9, showEMA20, vwap, bands, ema9, ema20, volumeData, entryZones, riskReward, microPullback, supportResistanceLevels, gapZones, flagPennantPattern])
 
   // Calculate current VWAP distance for display
   const vwapDistance = useMemo(() => {
@@ -406,6 +498,21 @@ export function EnhancedChart({
           {microPullback && microPullback.detected && (
             <span className={`pattern-badge pattern-${microPullback.patternStrength}`}>
               SETUP
+            </span>
+          )}
+          {flagPennantPattern && flagPennantPattern.detected && (
+            <span className={`pattern-badge pattern-${flagPennantPattern.patternStrength}`}>
+              {flagPennantPattern.type === 'pennant' ? 'PENNANT' : flagPennantPattern.type === 'bull_flag' ? 'BULL FLAG' : 'BEAR FLAG'}
+            </span>
+          )}
+          {supportResistanceLevels.length > 0 && (
+            <span className="pattern-badge pattern-sr">
+              S/R ({supportResistanceLevels.length})
+            </span>
+          )}
+          {gapZones.length > 0 && (
+            <span className="pattern-badge pattern-gap">
+              GAP ({gapZones.length})
             </span>
           )}
           {currentRMultiple && (

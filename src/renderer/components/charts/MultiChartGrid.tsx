@@ -2,6 +2,8 @@ import React, { useMemo } from 'react'
 import { EnhancedChart, EntryZoneLevel, RiskRewardConfig } from './EnhancedChart'
 import { useCandleData } from '../../hooks/useCandleData'
 import { Runner } from '../../hooks/useRunners'
+import { usePatternOverlayStore } from '../../store/patternOverlayStore'
+import { detectSupportResistance, detectGaps, detectFlagPennant } from '../../utils/indicators'
 
 interface MultiChartGridProps {
   primarySymbol: string | null
@@ -81,6 +83,9 @@ function getRiskRewardForSymbol(symbol: string | null, runners: Runner[]): RiskR
 export function MultiChartGrid({ primarySymbol, secondarySymbols, runners }: MultiChartGridProps) {
   const { candles: primaryCandles, rawCandles: primaryRaw, loading } = useCandleData(primarySymbol, '1m')
 
+  // Get pattern overlay toggles from store
+  const { showSupportResistance, showGaps, showFlagPennant } = usePatternOverlayStore()
+
   // Get entry zones for primary symbol
   const primaryEntryZones = useMemo(() =>
     getEntryZonesForSymbol(primarySymbol, runners),
@@ -92,6 +97,22 @@ export function MultiChartGrid({ primarySymbol, secondarySymbols, runners }: Mul
     getRiskRewardForSymbol(primarySymbol, runners),
     [primarySymbol, runners]
   )
+
+  // Calculate pattern overlays for primary chart
+  const supportResistanceLevels = useMemo(() => {
+    if (!showSupportResistance || primaryRaw.length < 50) return []
+    return detectSupportResistance(primaryRaw)
+  }, [primaryRaw, showSupportResistance])
+
+  const gapZones = useMemo(() => {
+    if (!showGaps || primaryRaw.length < 2) return []
+    return detectGaps(primaryRaw)
+  }, [primaryRaw, showGaps])
+
+  const flagPennantPattern = useMemo(() => {
+    if (!showFlagPennant || primaryRaw.length < 15) return null
+    return detectFlagPennant(primaryRaw)
+  }, [primaryRaw, showFlagPennant])
 
   return (
     <div className="multi-chart-grid">
@@ -110,6 +131,9 @@ export function MultiChartGrid({ primarySymbol, secondarySymbols, runners }: Mul
             showEMA20={true}
             entryZones={primaryEntryZones}
             riskReward={primaryRiskReward}
+            supportResistanceLevels={supportResistanceLevels}
+            gapZones={gapZones}
+            flagPennantPattern={flagPennantPattern}
           />
         ) : (
           <div className="no-symbol-selected">

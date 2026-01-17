@@ -40,6 +40,34 @@ This document tracks feature enhancements - both implemented and planned.
 
 ## Recently Implemented ✅
 
+### Phase 4: Pattern Overlays (v1.3.0) - Jan 2026
+**Status**: ✅ Complete
+**Source**: [session-notes/2026-01-16.md](session-notes/2026-01-16.md)
+
+**Features Implemented**:
+- **Support/Resistance Detection** - Auto-detect key price levels using pivot point clustering
+- **Gap Detection** - Identify and highlight price gaps (up/down, with fill tracking)
+- **Flag/Pennant Patterns** - Detect consolidation patterns after strong moves
+- **Toggle Controls** - User can enable/disable each pattern type independently
+- **Visual Indicators** - Pattern badges in chart header, color-coded overlays
+
+**Technical Implementation**:
+- Client-side detection (no backend changes required)
+- Zustand store for pattern toggle preferences
+- useMemo optimization for performance
+- Pattern-specific colors: S/R (purple), Gaps (blue), Flag/Pennant (orange)
+
+**Files**:
+- `src/renderer/utils/indicators.ts` - 3 pattern detection algorithms
+- `src/renderer/store/patternOverlayStore.ts` - Toggle state management
+- `src/renderer/components/panels/PatternOverlayControls.tsx` - UI toggle panel
+- `src/renderer/components/charts/EnhancedChart.tsx` - Pattern rendering on chart
+- `src/renderer/components/charts/MultiChartGrid.tsx` - Pattern calculation/wiring
+- `src/renderer/components/panels/AnalysisPanels.tsx` - Controls integration
+- `src/renderer/styles/global.css` - Pattern styling
+
+---
+
 ### Backend Event Loop Bugfix (v1.2.1) - Jan 2026
 **Status**: ✅ Complete
 **Source**: [session-notes/2026-01-16.md](session-notes/2026-01-16.md)
@@ -368,14 +396,29 @@ Real-time event stream from main momentum-trader app.
 ## Pattern Overlays - Phase 4
 
 ### Technical Pattern Visualization
-**Status**: NOT IMPLEMENTED
+**Status**: ✅ IMPLEMENTED (v1.3.0)
 **Priority**: Low
 
 **Features**:
-- [ ] Flag/pennant detection
-- [ ] Support/resistance auto-detection
-- [ ] Gap identification
-- [ ] Highlight pattern formations
+- [x] Flag/pennant detection with pattern strength indicators
+- [x] Support/resistance auto-detection using pivot point clustering
+- [x] Gap identification (up/down gaps with fill tracking)
+- [x] Highlight pattern formations on chart
+- [x] Toggle controls for each pattern type
+- [x] Pattern counts displayed in controls panel
+
+**Implementation Details**:
+- Client-side pattern detection (no backend changes)
+- Zustand store for toggle states
+- Color-coded overlays: S/R (purple), Gaps (blue), Flag/Pennant (orange)
+- Pattern badges in chart header when detected
+
+**Files**:
+- `src/renderer/utils/indicators.ts` - Pattern detection algorithms
+- `src/renderer/store/patternOverlayStore.ts` - Toggle state management
+- `src/renderer/components/panels/PatternOverlayControls.tsx` - UI controls
+- `src/renderer/components/charts/EnhancedChart.tsx` - Pattern rendering
+- `src/renderer/components/charts/MultiChartGrid.tsx` - Pattern calculation
 
 ---
 
