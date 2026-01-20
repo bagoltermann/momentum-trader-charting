@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useMemo } from 'react'
-import { createChart, IChartApi, ISeriesApi, CandlestickData, LineData, HistogramData } from 'lightweight-charts'
+import React, { useEffect, useRef, useMemo, useCallback } from 'react'
+import { createChart, IChartApi, ISeriesApi, CandlestickData, LineData, HistogramData, IPriceLine } from 'lightweight-charts'
 import {
   Candle,
   calculateVWAPBands,
@@ -44,6 +44,20 @@ interface EnhancedChartProps {
   flagPennantPattern?: FlagPennantPattern | null
 }
 
+// Store series references for data updates
+interface SeriesRefs {
+  candlestick: ISeriesApi<'Candlestick'> | null
+  vwap: ISeriesApi<'Line'> | null
+  ema9: ISeriesApi<'Line'> | null
+  ema20: ISeriesApi<'Line'> | null
+  volume: ISeriesApi<'Histogram'> | null
+  upper1: ISeriesApi<'Line'> | null
+  upper2: ISeriesApi<'Line'> | null
+  lower1: ISeriesApi<'Line'> | null
+  lower2: ISeriesApi<'Line'> | null
+  priceLines: IPriceLine[]
+}
+
 export function EnhancedChart({
   symbol,
   timeframe,
@@ -62,8 +76,22 @@ export function EnhancedChart({
   gapZones = [],
   flagPennantPattern,
 }: EnhancedChartProps) {
+  console.log(`[EnhancedChart] RENDER: symbol=${symbol}, candles=${candles.length}, rawCandles=${rawCandles.length}`)
+
   const chartContainerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
+  const seriesRef = useRef<SeriesRefs>({
+    candlestick: null,
+    vwap: null,
+    ema9: null,
+    ema20: null,
+    volume: null,
+    upper1: null,
+    upper2: null,
+    lower1: null,
+    lower2: null,
+    priceLines: [],
+  })
 
   // Calculate indicators
   const { vwap, bands } = useMemo(() => calculateVWAPBands(rawCandles), [rawCandles])
@@ -78,15 +106,28 @@ export function EnhancedChart({
 
   // Prepare volume data with colors
   const volumeData = useMemo(() => {
-    return candles.map((c, i) => ({
+    return candles.map((c) => ({
       time: c.time,
       value: c.volume,
       color: c.close >= c.open ? 'rgba(0, 200, 83, 0.5)' : 'rgba(255, 23, 68, 0.5)',
     }))
   }, [candles])
 
+  // Effect 1: Create chart (only on mount or symbol change)
   useEffect(() => {
-    if (!chartContainerRef.current) return
+    console.log(`[EnhancedChart] ${symbol} Effect1: Creating chart, container=${!!chartContainerRef.current}`)
+
+    if (!chartContainerRef.current) {
+      console.log(`[EnhancedChart] ${symbol} Effect1: No container ref, aborting`)
+      return
+    }
+
+    // Clean up existing chart
+    if (chartRef.current) {
+      console.log(`[EnhancedChart] ${symbol} Effect1: Removing existing chart`)
+      chartRef.current.remove()
+      chartRef.current = null
+    }
 
     // Create chart
     const chart = createChart(chartContainerRef.current, {
@@ -127,9 +168,7 @@ export function EnhancedChart({
         timeVisible: true,
         secondsVisible: timeframe === '1m',
         tickMarkFormatter: (time: number) => {
-          // Convert UTC to Eastern Time (UTC-5)
           const date = new Date(time * 1000)
-          // Use Intl to format in ET timezone
           return date.toLocaleTimeString('en-US', {
             timeZone: 'America/New_York',
             hour: 'numeric',
@@ -140,7 +179,6 @@ export function EnhancedChart({
       },
       localization: {
         timeFormatter: (time: number) => {
-          // Convert UTC to Eastern Time
           const date = new Date(time * 1000)
           return date.toLocaleTimeString('en-US', {
             timeZone: 'America/New_York',
@@ -164,282 +202,92 @@ export function EnhancedChart({
       wickDownColor: '#FF1744',
     })
 
-    if (candles.length > 0) {
-      candlestickSeries.setData(candles as CandlestickData<number>[])
-    }
+    // Add VWAP series
+    const vwapSeries = chart.addLineSeries({
+      color: '#2196F3',
+      lineWidth: 2,
+      title: 'VWAP',
+      priceLineVisible: false,
+      visible: showVWAP,
+    })
 
-    // Add entry zone price lines
-    if (entryZones.length > 0) {
-      entryZones.forEach(zone => {
-        const color = zone.type === 'entry' ? '#00E676' :  // Green for entry
-                      zone.type === 'stop' ? '#FF5252' :   // Red for stop
-                      '#FFD600'                             // Yellow for target
+    // Add EMA series
+    const ema9Series = chart.addLineSeries({
+      color: '#FFD600',
+      lineWidth: 1,
+      title: 'EMA 9',
+      priceLineVisible: false,
+      visible: showEMA9,
+    })
 
-        candlestickSeries.createPriceLine({
-          price: zone.price,
-          color: color,
-          lineWidth: 1,
-          lineStyle: 2, // Dashed
-          axisLabelVisible: true,
-          title: zone.label,
-        })
-      })
-    }
-
-    // Add Risk:Reward overlay with target zones
-    if (riskReward) {
-      const { entryPrice, stopPrice, showTargets = true } = riskReward
-      const risk = Math.abs(entryPrice - stopPrice)
-      const riskPercent = (risk / entryPrice) * 100
-
-      // Entry line (solid blue)
-      candlestickSeries.createPriceLine({
-        price: entryPrice,
-        color: '#2196F3',
-        lineWidth: 2,
-        lineStyle: 0, // Solid
-        axisLabelVisible: true,
-        title: `Entry $${entryPrice.toFixed(2)}`,
-      })
-
-      // Stop line (solid red with risk label)
-      candlestickSeries.createPriceLine({
-        price: stopPrice,
-        color: '#FF1744',
-        lineWidth: 2,
-        lineStyle: 0, // Solid
-        axisLabelVisible: true,
-        title: `Stop -$${risk.toFixed(2)} (${riskPercent.toFixed(1)}%)`,
-      })
-
-      if (showTargets) {
-        // 2R Target (green)
-        const target2R = entryPrice + (2 * risk)
-        candlestickSeries.createPriceLine({
-          price: target2R,
-          color: '#00E676',
-          lineWidth: 1,
-          lineStyle: 2, // Dashed
-          axisLabelVisible: true,
-          title: `2R +$${(2 * risk).toFixed(2)}`,
-        })
-
-        // 3R Target (light green)
-        const target3R = entryPrice + (3 * risk)
-        candlestickSeries.createPriceLine({
-          price: target3R,
-          color: '#69F0AE',
-          lineWidth: 1,
-          lineStyle: 2, // Dashed
-          axisLabelVisible: true,
-          title: `3R +$${(3 * risk).toFixed(2)}`,
-        })
-      }
-    }
-
-    // Add micro-pullback pattern visualization
-    if (microPullback && microPullback.detected) {
-      const strengthColors = {
-        weak: '#FFEB3B',      // Yellow
-        moderate: '#FF9800',  // Orange
-        strong: '#4CAF50',    // Green
-      }
-      const color = strengthColors[microPullback.patternStrength]
-
-      // Breakout trigger line
-      candlestickSeries.createPriceLine({
-        price: microPullback.triggerPrice,
-        color: color,
-        lineWidth: 2,
-        lineStyle: 0, // Solid
-        axisLabelVisible: true,
-        title: `BREAKOUT $${microPullback.triggerPrice.toFixed(2)}`,
-      })
-
-      // Pattern stop line
-      candlestickSeries.createPriceLine({
-        price: microPullback.stopPrice,
-        color: '#FF5252',
-        lineWidth: 1,
-        lineStyle: 2, // Dashed
-        axisLabelVisible: true,
-        title: `Pattern Stop $${microPullback.stopPrice.toFixed(2)}`,
-      })
-    }
-
-    // Add Support/Resistance levels
-    if (supportResistanceLevels.length > 0) {
-      const strengthWidths = { weak: 1, moderate: 2, strong: 3 }
-
-      supportResistanceLevels.forEach(level => {
-        const color = level.type === 'resistance' ? '#FF5252' : '#00E676'
-        const lineWidth = strengthWidths[level.strength]
-
-        candlestickSeries.createPriceLine({
-          price: level.price,
-          color: color,
-          lineWidth: lineWidth,
-          lineStyle: 2, // Dashed
-          axisLabelVisible: true,
-          title: `${level.type === 'resistance' ? 'R' : 'S'} $${level.price.toFixed(2)}`,
-        })
-      })
-    }
-
-    // Add Gap zones
-    if (gapZones.length > 0) {
-      gapZones.forEach(gap => {
-        const color = gap.type === 'up' ? '#00E676' : '#FF5252'
-        const opacity = gap.filled ? 0.1 : 0.25
-
-        // Draw gap zone as two price lines
-        candlestickSeries.createPriceLine({
-          price: gap.topPrice,
-          color: color,
-          lineWidth: 1,
-          lineStyle: 3, // Dotted
-          axisLabelVisible: false,
-          title: '',
-        })
-
-        candlestickSeries.createPriceLine({
-          price: gap.bottomPrice,
-          color: color,
-          lineWidth: 1,
-          lineStyle: 3, // Dotted
-          axisLabelVisible: true,
-          title: `Gap ${gap.gapPercent.toFixed(1)}%`,
-        })
-      })
-    }
-
-    // Add Flag/Pennant pattern visualization
-    if (flagPennantPattern && flagPennantPattern.detected) {
-      const strengthColors = {
-        weak: '#FFEB3B',      // Yellow
-        moderate: '#FF9800',  // Orange
-        strong: '#4CAF50',    // Green
-      }
-      const color = strengthColors[flagPennantPattern.patternStrength]
-
-      // Breakout level
-      candlestickSeries.createPriceLine({
-        price: flagPennantPattern.breakoutLevel,
-        color: color,
-        lineWidth: 2,
-        lineStyle: 0, // Solid
-        axisLabelVisible: true,
-        title: `${flagPennantPattern.type.replace('_', ' ').toUpperCase()} BREAKOUT`,
-      })
-
-      // Target price
-      candlestickSeries.createPriceLine({
-        price: flagPennantPattern.targetPrice,
-        color: '#69F0AE',
-        lineWidth: 1,
-        lineStyle: 2, // Dashed
-        axisLabelVisible: true,
-        title: `Target $${flagPennantPattern.targetPrice.toFixed(2)}`,
-      })
-    }
-
-    // Add VWAP line
-    if (showVWAP && vwap.length > 0) {
-      const vwapSeries = chart.addLineSeries({
-        color: '#2196F3',
-        lineWidth: 2,
-        title: 'VWAP',
-        priceLineVisible: false,
-      })
-      vwapSeries.setData(vwap as LineData<number>[])
-    }
+    const ema20Series = chart.addLineSeries({
+      color: '#FF9100',
+      lineWidth: 1,
+      title: 'EMA 20',
+      priceLineVisible: false,
+      visible: showEMA20,
+    })
 
     // Add VWAP bands
-    if (showVWAPBands && bands.length > 0) {
-      // Upper bands
-      const upper1Series = chart.addLineSeries({
-        color: 'rgba(33, 150, 243, 0.3)',
-        lineWidth: 1,
-        lineStyle: 2,
-        priceLineVisible: false,
-      })
-      upper1Series.setData(bands.map(b => ({ time: b.time, value: b.upper1 })) as LineData<number>[])
-
-      const upper2Series = chart.addLineSeries({
-        color: 'rgba(33, 150, 243, 0.2)',
-        lineWidth: 1,
-        lineStyle: 2,
-        priceLineVisible: false,
-      })
-      upper2Series.setData(bands.map(b => ({ time: b.time, value: b.upper2 })) as LineData<number>[])
-
-      // Lower bands
-      const lower1Series = chart.addLineSeries({
-        color: 'rgba(33, 150, 243, 0.3)',
-        lineWidth: 1,
-        lineStyle: 2,
-        priceLineVisible: false,
-      })
-      lower1Series.setData(bands.map(b => ({ time: b.time, value: b.lower1 })) as LineData<number>[])
-
-      const lower2Series = chart.addLineSeries({
-        color: 'rgba(33, 150, 243, 0.2)',
-        lineWidth: 1,
-        lineStyle: 2,
-        priceLineVisible: false,
-      })
-      lower2Series.setData(bands.map(b => ({ time: b.time, value: b.lower2 })) as LineData<number>[])
-    }
-
-    // Add 9 EMA
-    if (showEMA9 && ema9.length > 0) {
-      const ema9Series = chart.addLineSeries({
-        color: '#FFD600',
-        lineWidth: 1,
-        title: 'EMA 9',
-        priceLineVisible: false,
-      })
-      ema9Series.setData(ema9 as LineData<number>[])
-    }
-
-    // Add 20 EMA
-    if (showEMA20 && ema20.length > 0) {
-      const ema20Series = chart.addLineSeries({
-        color: '#FF9100',
-        lineWidth: 1,
-        title: 'EMA 20',
-        priceLineVisible: false,
-      })
-      ema20Series.setData(ema20 as LineData<number>[])
-    }
+    const upper1Series = chart.addLineSeries({
+      color: 'rgba(33, 150, 243, 0.3)',
+      lineWidth: 1,
+      lineStyle: 2,
+      priceLineVisible: false,
+      visible: showVWAPBands,
+    })
+    const upper2Series = chart.addLineSeries({
+      color: 'rgba(33, 150, 243, 0.2)',
+      lineWidth: 1,
+      lineStyle: 2,
+      priceLineVisible: false,
+      visible: showVWAPBands,
+    })
+    const lower1Series = chart.addLineSeries({
+      color: 'rgba(33, 150, 243, 0.3)',
+      lineWidth: 1,
+      lineStyle: 2,
+      priceLineVisible: false,
+      visible: showVWAPBands,
+    })
+    const lower2Series = chart.addLineSeries({
+      color: 'rgba(33, 150, 243, 0.2)',
+      lineWidth: 1,
+      lineStyle: 2,
+      priceLineVisible: false,
+      visible: showVWAPBands,
+    })
 
     // Add volume histogram
-    if (showVolume && volumeData.length > 0) {
-      const volumeSeries = chart.addHistogramSeries({
-        priceFormat: {
-          type: 'volume',
-        },
-        priceScaleId: 'volume',
-      })
+    const volumeSeries = chart.addHistogramSeries({
+      priceFormat: { type: 'volume' },
+      priceScaleId: 'volume',
+      visible: showVolume,
+    })
+    chart.priceScale('volume').applyOptions({
+      scaleMargins: { top: 0.8, bottom: 0 },
+    })
 
-      chart.priceScale('volume').applyOptions({
-        scaleMargins: {
-          top: 0.8,
-          bottom: 0,
-        },
-      })
-
-      volumeSeries.setData(volumeData as HistogramData<number>[])
+    // Store series references
+    seriesRef.current = {
+      candlestick: candlestickSeries,
+      vwap: vwapSeries,
+      ema9: ema9Series,
+      ema20: ema20Series,
+      volume: volumeSeries,
+      upper1: upper1Series,
+      upper2: upper2Series,
+      lower1: lower1Series,
+      lower2: lower2Series,
+      priceLines: [],
     }
-
-    // Fit content
-    chart.timeScale().fitContent()
+    console.log(`[EnhancedChart] ${symbol} Effect1: Chart and series created successfully`)
 
     // Handle resize
     const handleResize = () => {
-      if (chartContainerRef.current) {
+      if (chartContainerRef.current && chartRef.current) {
         const containerHeight = chartContainerRef.current.clientHeight
-        chart.applyOptions({
+        chartRef.current.applyOptions({
           width: chartContainerRef.current.clientWidth,
           height: containerHeight > 50 ? containerHeight : height
         })
@@ -447,7 +295,6 @@ export function EnhancedChart({
     }
     window.addEventListener('resize', handleResize)
 
-    // Use ResizeObserver for container size changes
     const resizeObserver = new ResizeObserver(handleResize)
     if (chartContainerRef.current) {
       resizeObserver.observe(chartContainerRef.current)
@@ -456,9 +303,228 @@ export function EnhancedChart({
     return () => {
       window.removeEventListener('resize', handleResize)
       resizeObserver.disconnect()
-      chart.remove()
+      if (chartRef.current) {
+        chartRef.current.remove()
+        chartRef.current = null
+      }
     }
-  }, [candles, rawCandles, height, timeframe, showVWAP, showVWAPBands, showVolume, showEMA9, showEMA20, vwap, bands, ema9, ema20, volumeData, entryZones, riskReward, microPullback, supportResistanceLevels, gapZones, flagPennantPattern])
+  }, [symbol, height, timeframe, showVolume, showVWAP, showVWAPBands, showEMA9, showEMA20])
+
+  // Effect 2: Update data (when candles or indicators change)
+  useEffect(() => {
+    const series = seriesRef.current
+    const chart = chartRef.current
+
+    console.log(`[EnhancedChart] ${symbol} Effect2: chart=${!!chart}, candlestick=${!!series.candlestick}, candles=${candles.length}`)
+
+    if (!chart || !series.candlestick) {
+      console.log(`[EnhancedChart] ${symbol} Effect2: Skipping - chart or series not ready`)
+      return
+    }
+
+    // Update candlestick data
+    if (candles.length > 0) {
+      console.log(`[EnhancedChart] ${symbol} Effect2: Setting ${candles.length} candles`)
+      series.candlestick.setData(candles as CandlestickData<number>[])
+    } else {
+      console.log(`[EnhancedChart] ${symbol} Effect2: No candles to set`)
+    }
+
+    // Update VWAP
+    if (series.vwap && vwap.length > 0) {
+      series.vwap.setData(vwap as LineData<number>[])
+    }
+
+    // Update EMAs
+    if (series.ema9 && ema9.length > 0) {
+      series.ema9.setData(ema9 as LineData<number>[])
+    }
+    if (series.ema20 && ema20.length > 0) {
+      series.ema20.setData(ema20 as LineData<number>[])
+    }
+
+    // Update VWAP bands
+    if (series.upper1 && bands.length > 0) {
+      series.upper1.setData(bands.map(b => ({ time: b.time, value: b.upper1 })) as LineData<number>[])
+    }
+    if (series.upper2 && bands.length > 0) {
+      series.upper2.setData(bands.map(b => ({ time: b.time, value: b.upper2 })) as LineData<number>[])
+    }
+    if (series.lower1 && bands.length > 0) {
+      series.lower1.setData(bands.map(b => ({ time: b.time, value: b.lower1 })) as LineData<number>[])
+    }
+    if (series.lower2 && bands.length > 0) {
+      series.lower2.setData(bands.map(b => ({ time: b.time, value: b.lower2 })) as LineData<number>[])
+    }
+
+    // Update volume
+    if (series.volume && volumeData.length > 0) {
+      series.volume.setData(volumeData as HistogramData<number>[])
+    }
+
+    // Fit content when data arrives
+    if (candles.length > 0) {
+      chart.timeScale().fitContent()
+    }
+  }, [candles, vwap, ema9, ema20, bands, volumeData])
+
+  // Effect 3: Update price lines (entry zones, patterns, etc.)
+  useEffect(() => {
+    const series = seriesRef.current
+    if (!series.candlestick) return
+
+    // Remove old price lines
+    series.priceLines.forEach(line => {
+      try {
+        series.candlestick?.removePriceLine(line)
+      } catch (e) {
+        // Line may already be removed
+      }
+    })
+    series.priceLines = []
+
+    // Add entry zone price lines
+    entryZones.forEach(zone => {
+      const color = zone.type === 'entry' ? '#00E676' :
+                    zone.type === 'stop' ? '#FF5252' : '#FFD600'
+      const line = series.candlestick!.createPriceLine({
+        price: zone.price,
+        color: color,
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: zone.label,
+      })
+      series.priceLines.push(line)
+    })
+
+    // Add Risk:Reward overlay
+    if (riskReward) {
+      const { entryPrice, stopPrice, showTargets = true } = riskReward
+      const risk = Math.abs(entryPrice - stopPrice)
+      const riskPercent = (risk / entryPrice) * 100
+
+      series.priceLines.push(series.candlestick!.createPriceLine({
+        price: entryPrice,
+        color: '#2196F3',
+        lineWidth: 2,
+        lineStyle: 0,
+        axisLabelVisible: true,
+        title: `Entry $${entryPrice.toFixed(2)}`,
+      }))
+
+      series.priceLines.push(series.candlestick!.createPriceLine({
+        price: stopPrice,
+        color: '#FF1744',
+        lineWidth: 2,
+        lineStyle: 0,
+        axisLabelVisible: true,
+        title: `Stop -$${risk.toFixed(2)} (${riskPercent.toFixed(1)}%)`,
+      }))
+
+      if (showTargets) {
+        const target2R = entryPrice + (2 * risk)
+        const target3R = entryPrice + (3 * risk)
+        series.priceLines.push(series.candlestick!.createPriceLine({
+          price: target2R,
+          color: '#00E676',
+          lineWidth: 1,
+          lineStyle: 2,
+          axisLabelVisible: true,
+          title: `2R +$${(2 * risk).toFixed(2)}`,
+        }))
+        series.priceLines.push(series.candlestick!.createPriceLine({
+          price: target3R,
+          color: '#69F0AE',
+          lineWidth: 1,
+          lineStyle: 2,
+          axisLabelVisible: true,
+          title: `3R +$${(3 * risk).toFixed(2)}`,
+        }))
+      }
+    }
+
+    // Add micro-pullback pattern
+    if (microPullback && microPullback.detected) {
+      const strengthColors = { weak: '#FFEB3B', moderate: '#FF9800', strong: '#4CAF50' }
+      const color = strengthColors[microPullback.patternStrength]
+
+      series.priceLines.push(series.candlestick!.createPriceLine({
+        price: microPullback.triggerPrice,
+        color: color,
+        lineWidth: 2,
+        lineStyle: 0,
+        axisLabelVisible: true,
+        title: `BREAKOUT $${microPullback.triggerPrice.toFixed(2)}`,
+      }))
+      series.priceLines.push(series.candlestick!.createPriceLine({
+        price: microPullback.stopPrice,
+        color: '#FF5252',
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: `Pattern Stop $${microPullback.stopPrice.toFixed(2)}`,
+      }))
+    }
+
+    // Add Support/Resistance levels
+    const strengthWidths = { weak: 1, moderate: 2, strong: 3 }
+    supportResistanceLevels.forEach(level => {
+      const color = level.type === 'resistance' ? '#FF5252' : '#00E676'
+      series.priceLines.push(series.candlestick!.createPriceLine({
+        price: level.price,
+        color: color,
+        lineWidth: strengthWidths[level.strength],
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: `${level.type === 'resistance' ? 'R' : 'S'} $${level.price.toFixed(2)}`,
+      }))
+    })
+
+    // Add Gap zones
+    gapZones.forEach(gap => {
+      const color = gap.type === 'up' ? '#00E676' : '#FF5252'
+      series.priceLines.push(series.candlestick!.createPriceLine({
+        price: gap.topPrice,
+        color: color,
+        lineWidth: 1,
+        lineStyle: 3,
+        axisLabelVisible: false,
+        title: '',
+      }))
+      series.priceLines.push(series.candlestick!.createPriceLine({
+        price: gap.bottomPrice,
+        color: color,
+        lineWidth: 1,
+        lineStyle: 3,
+        axisLabelVisible: true,
+        title: `Gap ${gap.gapPercent.toFixed(1)}%`,
+      }))
+    })
+
+    // Add Flag/Pennant pattern
+    if (flagPennantPattern && flagPennantPattern.detected) {
+      const strengthColors = { weak: '#FFEB3B', moderate: '#FF9800', strong: '#4CAF50' }
+      const color = strengthColors[flagPennantPattern.patternStrength]
+
+      series.priceLines.push(series.candlestick!.createPriceLine({
+        price: flagPennantPattern.breakoutLevel,
+        color: color,
+        lineWidth: 2,
+        lineStyle: 0,
+        axisLabelVisible: true,
+        title: `${flagPennantPattern.type.replace('_', ' ').toUpperCase()} BREAKOUT`,
+      }))
+      series.priceLines.push(series.candlestick!.createPriceLine({
+        price: flagPennantPattern.targetPrice,
+        color: '#69F0AE',
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: `Target $${flagPennantPattern.targetPrice.toFixed(2)}`,
+      }))
+    }
+  }, [entryZones, riskReward, microPullback, supportResistanceLevels, gapZones, flagPennantPattern])
 
   // Calculate current VWAP distance for display
   const vwapDistance = useMemo(() => {
