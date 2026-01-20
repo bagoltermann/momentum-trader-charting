@@ -32,7 +32,7 @@ pytz>=2024.1
 # File Watching (for real-time watchlist updates)
 watchdog>=3.0.0
 
-# HTTP Client
+# HTTP Client (httpx works reliably with uvicorn on Windows)
 httpx>=0.26.0
 
 # WebSocket Support (for future real-time features)

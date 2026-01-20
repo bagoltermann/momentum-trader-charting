@@ -34,8 +34,6 @@ logging.basicConfig(
 )
 _logger = logging.getLogger('schwab_client')
 
-# Silence verbose aiohttp logging
-logging.getLogger('aiohttp').setLevel(logging.WARNING)
 
 # Server-side cache for candle data (reduces Schwab API calls)
 # Cache key: "symbol:frequency_type:frequency" -> (timestamp, data)
@@ -182,7 +180,7 @@ class ChartSchwabClient:
     Dedicated Schwab client for charting app.
     Read-only access to price history and quotes.
 
-    Uses aiohttp and circuit breaker pattern from momentum-trader.
+    Uses httpx and circuit breaker pattern from momentum-trader.
     """
 
     BASE_URL = "https://api.schwabapi.com/marketdata/v1"
