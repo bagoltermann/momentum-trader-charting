@@ -3,11 +3,19 @@ from fastapi import APIRouter, HTTPException
 from typing import Optional
 from pathlib import Path
 import json
+import logging
+import asyncio
 from services.schwab_client import ChartSchwabClient
 from services.file_watcher import get_cached_watchlist, get_cached_runners
 from core.config import load_config
 
+# Setup logger (uses same file as schwab_client)
+_logger = logging.getLogger('routes')
+
 router = APIRouter()
+
+# Request counter for debugging
+_request_count = 0
 
 # Lazy-initialized Schwab client
 _schwab_client: Optional[ChartSchwabClient] = None
@@ -50,6 +58,14 @@ async def get_candles(symbol: str, timeframe: str = "1m"):
 
     Timeframes: 1m, 5m, 15m, D
     """
+    global _request_count
+    _request_count += 1
+    req_id = _request_count
+    _logger.info(f"[Route #{req_id}] GET /candles/{symbol}?timeframe={timeframe} started")
+
+    # Note: Removed request.is_disconnected() check - it can cause issues on Windows
+    # Server-side caching means we want to complete requests anyway
+
     client = get_schwab_client()
 
     # Map timeframe to Schwab parameters
@@ -64,25 +80,43 @@ async def get_candles(symbol: str, timeframe: str = "1m"):
         raise HTTPException(status_code=400, detail=f"Invalid timeframe: {timeframe}")
 
     params = tf_map[timeframe]
-    candles = client.get_price_history(
-        symbol,
-        frequency_type=params["frequency_type"],
-        frequency=params["frequency"],
-        period_type="day" if timeframe != "D" else "month",
-        period=params["period"]
-    )
 
-    if candles is None:
-        raise HTTPException(status_code=404, detail=f"No data for {symbol}")
+    try:
+        candles = await client.get_price_history(
+            symbol,
+            frequency_type=params["frequency_type"],
+            frequency=params["frequency"],
+            period_type="day" if timeframe != "D" else "month",
+            period=params["period"]
+        )
 
-    return candles
+        # Note: We no longer check for client disconnect after fetching.
+        # The data is already cached server-side, so returning it is fine
+        # even if the client may not receive it - it prevents unnecessary
+        # API calls on the next request.
+
+        if candles is None:
+            _logger.warning(f"[Route #{req_id}] No data for {symbol}")
+            raise HTTPException(status_code=404, detail=f"No data for {symbol}")
+
+        _logger.info(f"[Route #{req_id}] GET /candles/{symbol} completed with {len(candles)} candles")
+        return candles
+
+    except asyncio.CancelledError:
+        _logger.info(f"[Route #{req_id}] Request cancelled")
+        raise HTTPException(status_code=499, detail="Request cancelled")
+    except HTTPException:
+        raise
+    except Exception as e:
+        _logger.error(f"[Route #{req_id}] GET /candles/{symbol} failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/quote/{symbol}")
 async def get_quote(symbol: str):
     """Get real-time quote for a symbol"""
     client = get_schwab_client()
-    quote = client.get_quote(symbol)
+    quote = await client.get_quote(symbol)
     if quote is None:
         raise HTTPException(status_code=404, detail=f"No quote for {symbol}")
     return quote

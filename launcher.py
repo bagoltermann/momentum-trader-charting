@@ -375,16 +375,22 @@ class ChartingLauncher:
         if self.backend_process and self.backend_process.poll() is None:
             try:
                 if self.platform == 'Windows':
-                    self.backend_process.terminate()
+                    # On Windows, use taskkill to kill the entire process tree
+                    # This ensures all uvicorn workers are also terminated
+                    subprocess.run(
+                        ['taskkill', '/F', '/T', '/PID', str(self.backend_process.pid)],
+                        capture_output=True,
+                        creationflags=subprocess.CREATE_NO_WINDOW
+                    )
+                    log("[OK] Backend stopped")
                 else:
                     self.backend_process.send_signal(signal.SIGTERM)
-
-                try:
-                    self.backend_process.wait(timeout=5)
-                    log("[OK] Backend stopped gracefully")
-                except subprocess.TimeoutExpired:
-                    self.backend_process.kill()
-                    log("[OK] Backend stopped (forced)")
+                    try:
+                        self.backend_process.wait(timeout=5)
+                        log("[OK] Backend stopped gracefully")
+                    except subprocess.TimeoutExpired:
+                        self.backend_process.kill()
+                        log("[OK] Backend stopped (forced)")
             except Exception as e:
                 log(f"[!] Error stopping backend: {e}")
 

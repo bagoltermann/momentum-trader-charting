@@ -6,12 +6,15 @@ Provides:
 - File watching for watchlist/runners
 - WebSocket relay for real-time events
 """
+import sys
+import asyncio
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-import asyncio
-from api.routes import router
+from api.routes import router, get_schwab_client
 from services.file_watcher import start_file_watchers, stop_file_watchers
+from services.schwab_client import close_shared_client
 from core.config import load_config
 
 app = FastAPI(title="Momentum Trader Charts Backend")
@@ -38,8 +41,10 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """Clean up file watchers on shutdown"""
+    """Clean up file watchers and Schwab client on shutdown"""
     stop_file_watchers()
+    # Close the shared httpx client
+    await close_shared_client()
     print("[OK] Charting backend shutdown complete")
 
 
@@ -65,4 +70,15 @@ async def shutdown():
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8081)
+    # Run uvicorn with specific Windows-compatible settings
+    # Using the string form ("main:app") allows better process management
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8081,
+        log_level="info",
+        timeout_keep_alive=5,  # Short keep-alive to release connections quickly
+        limit_concurrency=20,  # Lower limit to prevent connection buildup
+        limit_max_requests=500,  # Restart after this many requests
+        access_log=False,  # Reduce logging overhead
+    )

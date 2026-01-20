@@ -3,54 +3,212 @@ Schwab client for charting app - READ ONLY
 
 Shares tokens with main momentum trader app.
 Never writes or refreshes tokens.
+
+Architecture based on momentum-trader's robust patterns:
+- httpx for async HTTP (better Windows compatibility than aiohttp)
+- Circuit breaker for API protection
+- Exponential backoff retry strategy
+- Server-side caching to reduce API calls
 """
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 import pytz
-import yaml
-from schwab import auth
+import json
+import httpx
+import logging
+import asyncio
+import time as time_module
 from core.config import load_config
+
+# Setup file logging for backend debug
+_backend_log_path = Path(__file__).parent.parent.parent / 'logs' / 'backend.log'
+_backend_log_path.parent.mkdir(exist_ok=True)
+
+# Configure root logger for our modules only
+logging.basicConfig(
+    filename=str(_backend_log_path),
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+_logger = logging.getLogger('schwab_client')
+
+# Silence verbose aiohttp logging
+logging.getLogger('aiohttp').setLevel(logging.WARNING)
+
+# Server-side cache for candle data (reduces Schwab API calls)
+# Cache key: "symbol:frequency_type:frequency" -> (timestamp, data)
+_candle_cache: Dict[str, tuple[float, List[Dict]]] = {}
+_CACHE_TTL_SECONDS = 60  # Cache for 60 seconds (matches frontend refresh interval)
+
+
+class CircuitBreaker:
+    """
+    Circuit breaker pattern for API protection (from momentum-trader)
+
+    States:
+    - CLOSED: Normal operation, calls pass through
+    - OPEN: Too many failures, reject all calls for timeout period
+    - HALF_OPEN: Testing if service recovered
+    """
+
+    def __init__(self, failure_threshold: int = 3, timeout_seconds: int = 60):
+        self.failure_threshold = failure_threshold
+        self.timeout_seconds = timeout_seconds
+        self.failure_count = 0
+        self.last_failure_time: Optional[float] = None
+        self.state = 'CLOSED'
+
+    def can_execute(self) -> bool:
+        """Check if we can execute a request"""
+        if self.state == 'CLOSED':
+            return True
+
+        if self.state == 'OPEN':
+            # Check if timeout has passed
+            if self.last_failure_time and (time_module.time() - self.last_failure_time > self.timeout_seconds):
+                _logger.info("Circuit breaker: Attempting recovery (HALF_OPEN)")
+                self.state = 'HALF_OPEN'
+                return True
+            return False
+
+        # HALF_OPEN - allow one request to test
+        return True
+
+    def record_success(self):
+        """Record a successful call"""
+        if self.state == 'HALF_OPEN':
+            _logger.info("Circuit breaker: Recovery successful (CLOSED)")
+        self.state = 'CLOSED'
+        self.failure_count = 0
+
+    def record_failure(self):
+        """Record a failed call"""
+        self.failure_count += 1
+        self.last_failure_time = time_module.time()
+
+        if self.failure_count >= self.failure_threshold:
+            if self.state != 'OPEN':
+                _logger.warning(f"Circuit breaker: OPEN after {self.failure_count} failures (cooling down {self.timeout_seconds}s)")
+            self.state = 'OPEN'
+
+    def get_status(self) -> str:
+        """Get current circuit breaker status"""
+        if self.state == 'OPEN' and self.last_failure_time:
+            remaining = self.timeout_seconds - (time_module.time() - self.last_failure_time)
+            if remaining > 0:
+                return f"OPEN (recovery in {int(remaining)}s)"
+        return self.state
+
+
+# Global circuit breaker instance
+_circuit_breaker = CircuitBreaker(failure_threshold=3, timeout_seconds=60)
+
+# Semaphore to limit concurrent API calls (prevents overwhelming the connection pool)
+# NOTE: Semaphore must be created lazily to avoid "no running event loop" error at import time
+_api_semaphore: Optional[asyncio.Semaphore] = None
+
+def _get_semaphore() -> asyncio.Semaphore:
+    """Get or create the API semaphore (lazy initialization)"""
+    global _api_semaphore
+    if _api_semaphore is None:
+        _api_semaphore = asyncio.Semaphore(3)  # Max 3 concurrent API calls to Schwab
+    return _api_semaphore
+
+
+# Shared httpx client for connection reuse
+_shared_client: Optional[httpx.AsyncClient] = None
+_client_lock: Optional[asyncio.Lock] = None
+
+
+def _get_lock() -> asyncio.Lock:
+    """Lazy initialization of client lock"""
+    global _client_lock
+    if _client_lock is None:
+        _client_lock = asyncio.Lock()
+    return _client_lock
+
+
+async def _get_client() -> httpx.AsyncClient:
+    """Get or create the shared httpx client"""
+    global _shared_client
+
+    # Use lock to prevent race conditions during client creation
+    async with _get_lock():
+        if _shared_client is None or _shared_client.is_closed:
+            _shared_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(10.0, connect=5.0),
+                limits=httpx.Limits(max_connections=20, max_keepalive_connections=10)
+            )
+            _logger.info("Created new shared httpx client")
+        return _shared_client
+
+
+async def make_api_request(url: str, params: Dict, headers: Dict) -> Optional[httpx.Response]:
+    """
+    Make an API request using httpx with shared client.
+    """
+    _logger.info(f"make_api_request: Starting request to {url}")
+
+    client = await _get_client()
+
+    try:
+        response = await client.get(url, params=params, headers=headers)
+        _logger.info(f"make_api_request: Got response status {response.status_code}")
+        return response
+    except httpx.TimeoutException:
+        _logger.warning(f"make_api_request: Timeout")
+        raise asyncio.TimeoutError()
+    except httpx.HTTPError as e:
+        _logger.warning(f"httpx request failed: {e}")
+        raise
+    except Exception as e:
+        _logger.warning(f"API request failed: {e}")
+        raise
+
+
+async def close_shared_client():
+    """Close the shared httpx client"""
+    global _shared_client
+    if _shared_client and not _shared_client.is_closed:
+        await _shared_client.aclose()
+        _shared_client = None
+        _logger.info("Closed shared httpx client")
 
 
 class ChartSchwabClient:
     """
     Dedicated Schwab client for charting app.
     Read-only access to price history and quotes.
+
+    Uses aiohttp and circuit breaker pattern from momentum-trader.
     """
 
-    def __init__(self):
-        self.client = None
-        self._authenticate()
+    BASE_URL = "https://api.schwabapi.com/marketdata/v1"
 
-    def _authenticate(self):
-        """Initialize Schwab client using shared tokens from config"""
-        # Load paths from config (set by startup script)
+    def __init__(self):
         config = load_config()
         schwab_config = config.get('data_sources', {}).get('schwab', {})
 
-        creds_path = Path(schwab_config.get('credentials_path', ''))
-        token_path = Path(schwab_config.get('tokens_path', ''))
+        self._token_path = Path(schwab_config.get('tokens_path', ''))
 
-        if not creds_path.exists():
-            raise FileNotFoundError(f"Credentials not found: {creds_path}")
-        if not token_path.exists():
-            raise FileNotFoundError(f"Tokens not found: {token_path}")
+        if not self._token_path.exists():
+            raise FileNotFoundError(f"Tokens not found: {self._token_path}")
 
-        with open(creds_path) as f:
-            creds = yaml.safe_load(f)
+        print(f"[OK] Schwab client configured (aiohttp + circuit breaker) using tokens from: {self._token_path}")
 
-        schwab_creds = creds.get('schwab', {})
+    async def close(self):
+        """Close is handled globally via close_shared_client()"""
+        pass
 
-        self.client = auth.easy_client(
-            api_key=schwab_creds['app_key'],
-            app_secret=schwab_creds['app_secret'],
-            callback_url="https://127.0.0.1:8182",
-            token_path=str(token_path)
-        )
-        print(f"[OK] Schwab client initialized (read-only) using tokens from: {token_path}")
+    def _get_access_token(self) -> str:
+        """Read current access token from token file"""
+        with open(self._token_path) as f:
+            token_data = json.load(f)
+        return token_data['token']['access_token']
 
-    def get_price_history(
+    async def get_price_history(
         self,
         symbol: str,
         frequency_type: str = "minute",
@@ -60,105 +218,182 @@ class ChartSchwabClient:
         today_only: bool = True
     ) -> Optional[List[Dict]]:
         """
-        Get historical price data (candles)
+        Get historical price data with circuit breaker protection.
 
-        For intraday timeframes (1m, 5m, 15m), defaults to today's session only.
-        Set today_only=False to get full period history.
-
-        Returns list of candles: [{timestamp, open, high, low, close, volume}]
+        Features (from momentum-trader patterns):
+        - Server-side cache (60s TTL)
+        - Circuit breaker (3 failures -> 60s cooldown)
+        - aiohttp for stable Windows performance
+        - Exponential backoff retry (1s, 2s, 4s)
         """
-        try:
-            from schwab.client import Client
+        start_time = time_module.time()
 
-            # Map to enums
-            freq_type_enum = Client.PriceHistory.FrequencyType[frequency_type.upper()]
+        # Check server-side cache first
+        cache_key = f"{symbol}:{frequency_type}:{frequency}"
+        cached = _candle_cache.get(cache_key)
+        if cached:
+            cache_time, cache_data = cached
+            if time_module.time() - cache_time < _CACHE_TTL_SECONDS:
+                _logger.info(f"get_price_history({symbol}) served from cache")
+                return cache_data
 
-            # Frequency enum
-            if frequency_type == "minute":
-                freq_map = {
-                    1: Client.PriceHistory.Frequency.EVERY_MINUTE,
-                    5: Client.PriceHistory.Frequency.EVERY_FIVE_MINUTES,
-                    15: Client.PriceHistory.Frequency.EVERY_FIFTEEN_MINUTES,
-                    30: Client.PriceHistory.Frequency.EVERY_THIRTY_MINUTES,
-                }
-                freq_enum = freq_map.get(frequency, Client.PriceHistory.Frequency.EVERY_MINUTE)
-            else:
-                freq_enum = Client.PriceHistory.Frequency.DAILY
-
-            # For intraday timeframes, use date range to get only today's data
-            if frequency_type == "minute" and today_only:
-                # Get today's date in Eastern Time (market timezone)
-                et = pytz.timezone('America/New_York')
-                now_et = datetime.now(et)
-
-                # Market open is 9:30 AM ET, but include premarket from 4:00 AM
-                market_start = now_et.replace(hour=4, minute=0, second=0, microsecond=0)
-
-                # If it's before 4 AM, use yesterday's session
-                if now_et.hour < 4:
-                    market_start = market_start - timedelta(days=1)
-
-                response = self.client.get_price_history(
-                    symbol,
-                    frequency_type=freq_type_enum,
-                    frequency=freq_enum,
-                    start_datetime=market_start,
-                    end_datetime=now_et
-                )
-            else:
-                # Use period-based request for daily charts or when today_only=False
-                period_type_enum = Client.PriceHistory.PeriodType[period_type.upper()]
-
-                if period_type == "day":
-                    period_map = {
-                        1: Client.PriceHistory.Period.ONE_DAY,
-                        5: Client.PriceHistory.Period.FIVE_DAYS,
-                        10: Client.PriceHistory.Period.TEN_DAYS,
-                    }
-                    period_enum = period_map.get(period, Client.PriceHistory.Period.ONE_DAY)
-                else:
-                    period_enum = Client.PriceHistory.Period.ONE_MONTH
-
-                response = self.client.get_price_history(
-                    symbol,
-                    period_type=period_type_enum,
-                    period=period_enum,
-                    frequency_type=freq_type_enum,
-                    frequency=freq_enum
-                )
-
-            if response.status_code != 200:
-                print(f"[WARN] Price history error for {symbol}: {response.status_code}")
-                return None
-
-            data = response.json()
-            candles = data.get('candles', [])
-
-            # Transform to standard format
-            return [
-                {
-                    'timestamp': c['datetime'],
-                    'open': c['open'],
-                    'high': c['high'],
-                    'low': c['low'],
-                    'close': c['close'],
-                    'volume': c['volume']
-                }
-                for c in candles
-            ]
-
-        except Exception as e:
-            print(f"[ERROR] get_price_history({symbol}): {e}")
+        # Check circuit breaker before making request
+        if not _circuit_breaker.can_execute():
+            _logger.warning(f"get_price_history({symbol}) blocked by circuit breaker ({_circuit_breaker.get_status()})")
             return None
 
-    def get_quote(self, symbol: str) -> Optional[Dict]:
-        """Get real-time quote for a symbol"""
+        _logger.info(f"get_price_history({symbol}) waiting for semaphore")
+
+        # Limit concurrent API calls to prevent connection pool exhaustion
+        async with _get_semaphore():
+            _logger.info(f"get_price_history({symbol}) acquired semaphore, starting request")
+
+            # Retry with exponential backoff (like momentum-trader)
+            max_retries = 3
+            base_delay = 1.0  # seconds
+
+            for attempt in range(max_retries):
+                try:
+                    access_token = self._get_access_token()
+
+                    params = {
+                        'symbol': symbol,
+                        'frequencyType': frequency_type,
+                        'frequency': frequency,
+                    }
+
+                    if frequency_type == "minute" and today_only:
+                        et = pytz.timezone('America/New_York')
+                        now_et = datetime.now(et)
+                        market_start = now_et.replace(hour=4, minute=0, second=0, microsecond=0)
+
+                        if now_et.hour < 4:
+                            market_start = market_start - timedelta(days=1)
+
+                        params['startDate'] = int(market_start.timestamp() * 1000)
+                        params['endDate'] = int(now_et.timestamp() * 1000)
+                    else:
+                        params['periodType'] = period_type
+                        params['period'] = period
+
+                    # Use aiohttp for stable Windows performance
+                    response = await make_api_request(
+                        f"{self.BASE_URL}/pricehistory",
+                        params=params,
+                        headers={
+                            'Authorization': f'Bearer {access_token}',
+                            'Accept': 'application/json'
+                        }
+                    )
+
+                    # Handle rate limiting (429) with retry
+                    if response.status_code == 429:
+                        if attempt < max_retries - 1:
+                            delay = base_delay * (2 ** attempt)
+                            _logger.warning(f"get_price_history({symbol}) rate limited, retrying in {delay}s")
+                            await asyncio.sleep(delay)
+                            continue
+                        _circuit_breaker.record_failure()
+                        return None
+
+                    # Handle server errors (500-504) with retry
+                    if response.status_code >= 500:
+                        if attempt < max_retries - 1:
+                            delay = base_delay * (2 ** attempt)
+                            _logger.warning(f"get_price_history({symbol}) server error {response.status_code}, retrying in {delay}s")
+                            await asyncio.sleep(delay)
+                            continue
+                        _circuit_breaker.record_failure()
+                        return None
+
+                    if response.status_code != 200:
+                        _logger.warning(f"get_price_history({symbol}) error: {response.status_code}")
+                        return None
+
+                    # Success - record it and parse response
+                    _circuit_breaker.record_success()
+
+                    elapsed = time_module.time() - start_time
+                    _logger.info(f"get_price_history({symbol}) completed in {elapsed:.2f}s")
+
+                    data = response.json()
+                    candles = data.get('candles', [])
+
+                    result = [
+                        {
+                            'timestamp': c['datetime'],
+                            'open': c['open'],
+                            'high': c['high'],
+                            'low': c['low'],
+                            'close': c['close'],
+                            'volume': c['volume']
+                        }
+                        for c in candles
+                    ]
+
+                    # Cache the result
+                    _candle_cache[cache_key] = (time_module.time(), result)
+
+                    return result
+
+                except asyncio.CancelledError:
+                    _logger.info(f"get_price_history({symbol}) was cancelled")
+                    raise  # Re-raise to properly handle cancellation
+                except asyncio.TimeoutError:
+                    _logger.warning(f"get_price_history({symbol}) timeout (attempt {attempt + 1}/{max_retries})")
+                    _circuit_breaker.record_failure()
+                    if attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt)
+                        await asyncio.sleep(delay)
+                        continue
+                    return None
+                except Exception as e:
+                    elapsed = time_module.time() - start_time
+                    _logger.error(f"get_price_history({symbol}) failed after {elapsed:.2f}s: {e}")
+                    _circuit_breaker.record_failure()
+                    return None
+
+            # All retries exhausted
+            return None
+
+    async def get_quote(self, symbol: str) -> Optional[Dict]:
+        """Get real-time quote using aiohttp with circuit breaker"""
+        # Check circuit breaker before making request
+        if not _circuit_breaker.can_execute():
+            _logger.warning(f"get_quote({symbol}) blocked by circuit breaker")
+            return None
+
         try:
-            response = self.client.get_quote(symbol)
+            access_token = self._get_access_token()
+
+            # Use aiohttp for stable Windows performance
+            response = await make_api_request(
+                f"{self.BASE_URL}/{symbol}/quotes",
+                params={},
+                headers={
+                    'Authorization': f'Bearer {access_token}',
+                    'Accept': 'application/json'
+                }
+            )
+
             if response.status_code != 200:
+                _logger.warning(f"get_quote({symbol}) error: {response.status_code}")
+                if response.status_code >= 500:
+                    _circuit_breaker.record_failure()
                 return None
+
+            _circuit_breaker.record_success()
             data = response.json()
             return data.get(symbol, {}).get('quote', {})
+
+        except asyncio.CancelledError:
+            _logger.info(f"get_quote({symbol}) was cancelled")
+            raise
+        except asyncio.TimeoutError:
+            _logger.warning(f"get_quote({symbol}) timeout")
+            _circuit_breaker.record_failure()
+            return None
         except Exception as e:
-            print(f"[ERROR] get_quote({symbol}): {e}")
+            _logger.error(f"get_quote({symbol}) failed: {e}")
+            _circuit_breaker.record_failure()
             return None

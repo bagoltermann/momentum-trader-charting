@@ -32,6 +32,20 @@ app.whenReady().then(createWindow)
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
+    // Signal backend to shutdown before quitting
+    try {
+      const http = require('http')
+      const req = http.request({
+        hostname: 'localhost',
+        port: 8081,
+        path: '/api/shutdown',
+        method: 'POST',
+      })
+      req.on('error', () => {}) // Ignore errors - backend might already be down
+      req.end()
+    } catch (e) {
+      // Ignore - backend might already be down
+    }
     app.quit()
   }
 })
