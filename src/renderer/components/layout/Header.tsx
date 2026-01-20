@@ -4,9 +4,21 @@ import { useWatchlistStore } from '../../store/watchlistStore'
 export function Header() {
   const { connectionStatus, lastUpdate } = useWatchlistStore()
 
-  const handleExit = () => {
+  const handleExit = async () => {
+    console.log('Exit button clicked')
+    console.log('electronAPI available:', !!window.electronAPI)
+    console.log('exitApp function:', !!window.electronAPI?.exitApp)
+
     if (window.electronAPI?.exitApp) {
-      window.electronAPI.exitApp()
+      try {
+        await window.electronAPI.exitApp()
+      } catch (err) {
+        console.error('Exit failed:', err)
+      }
+    } else {
+      console.error('electronAPI.exitApp not available')
+      // Fallback: try closing the window directly
+      window.close()
     }
   }
 
