@@ -11,6 +11,7 @@ interface LLMAnalysis {
 interface WatchlistItem {
   symbol: string
   price: number
+  high?: number
   gap_percent: number
   volume_ratio: number
   float: number
