@@ -35,11 +35,25 @@ async def health_check():
 
 
 @router.get("/watchlist")
-async def get_watchlist():
-    """Get current watchlist from cached file"""
+async def get_watchlist(include_dead: bool = False):
+    """
+    Get current watchlist from cached file.
+
+    By default, filters out DEAD stocks to match trader app behavior.
+    Use ?include_dead=true to include all stocks.
+    """
     watchlist = get_cached_watchlist()
     if watchlist is None:
         raise HTTPException(status_code=503, detail="Watchlist not available")
+
+    # Filter out DEAD stocks by default (matches trader app v1.42.0 behavior)
+    if not include_dead:
+        original_count = len(watchlist)
+        watchlist = [s for s in watchlist if s.get('health_status') != 'DEAD']
+        filtered_count = original_count - len(watchlist)
+        if filtered_count > 0:
+            _logger.debug(f"Filtered {filtered_count} DEAD stocks from watchlist")
+
     return watchlist
 
 

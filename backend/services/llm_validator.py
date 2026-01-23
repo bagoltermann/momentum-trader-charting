@@ -10,6 +10,8 @@ v1.0.0: Initial implementation
 import sys
 import yaml
 import logging
+import json
+import re
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, asdict
@@ -140,8 +142,8 @@ class LLMValidator:
             self._provider = None
             return
 
-        llm_config = self.config.get('llm', {})
-        ollama_config = llm_config.get('ollama', {})
+        llm_config = self.config.get('llm') or {}
+        ollama_config = llm_config.get('ollama') or {}
 
         self._provider_config = {
             'base_url': ollama_config.get('base_url', 'http://localhost:11434'),
@@ -225,22 +227,50 @@ class LLMValidator:
 
         _logger.info(f"Validating {symbol} via LLM...")
 
-        try:
-            # Call LLM
-            result = self._provider.complete_json(user_prompt, system_prompt)
+        # Retry logic for JSON parsing failures (LLM sometimes returns malformed JSON)
+        max_retries = 2
+        last_error = None
+        last_raw_response = None
 
-            if result['success']:
-                validation = self._parse_llm_response(symbol, result['content'])
-                self._cache.set(symbol, validation)
-                _logger.info(f"Validated {symbol}: {validation.signal} (confidence: {validation.confidence}%)")
-                return validation
-            else:
-                _logger.error(f"LLM validation failed for {symbol}: {result.get('error')}")
+        for attempt in range(max_retries + 1):
+            try:
+                # Call LLM with enhanced JSON extraction
+                result = self._call_llm_with_json_extraction(symbol, user_prompt, system_prompt)
+
+                if result['success']:
+                    validation = self._parse_llm_response(symbol, result['content'])
+                    self._cache.set(symbol, validation)
+                    if attempt > 0:
+                        _logger.info(f"Validated {symbol} on retry {attempt}: {validation.signal} (confidence: {validation.confidence}%)")
+                    else:
+                        _logger.info(f"Validated {symbol}: {validation.signal} (confidence: {validation.confidence}%)")
+                    return validation
+                else:
+                    last_error = result.get('error', 'Unknown error')
+                    last_raw_response = result.get('raw_response', '')
+
+                    # Check if it's a JSON parse failure worth retrying
+                    is_json_error = 'JSON' in last_error or 'parse' in last_error.lower()
+                    if is_json_error and attempt < max_retries:
+                        _logger.warning(f"[{symbol}] JSON extraction failed (attempt {attempt + 1}/{max_retries + 1}), retrying...")
+                        continue
+
+                    _logger.error(f"[{symbol}] LLM validation failed after {attempt + 1} attempts: {last_error}")
+                    return self._get_fallback_result(symbol, context)
+
+            except Exception as e:
+                last_error = str(e)
+                if attempt < max_retries:
+                    _logger.warning(f"[{symbol}] Validation error (attempt {attempt + 1}/{max_retries + 1}): {e}")
+                    continue
+                _logger.error(f"[{symbol}] Validation error after {max_retries + 1} attempts: {e}")
                 return self._get_fallback_result(symbol, context)
 
-        except Exception as e:
-            _logger.error(f"Validation error for {symbol}: {e}")
-            return self._get_fallback_result(symbol, context)
+        # Should not reach here, but fallback just in case
+        _logger.error(f"[{symbol}] Validation exhausted all retries. Last error: {last_error}")
+        if last_raw_response:
+            _logger.error(f"[{symbol}] Last raw response: {last_raw_response[:500]}...")
+        return self._get_fallback_result(symbol, context)
 
     def _build_context(
         self,
@@ -274,8 +304,46 @@ class LLMValidator:
         float_shares = stock.get('float', 0)
         quality_score = stock.get('quality_score', 0)
 
+        # Health status from watchlist (CRITICAL for DEAD stock detection)
+        health_status = stock.get('health_status', 'UNKNOWN') or 'UNKNOWN'
+        health_metrics = stock.get('health_metrics') or {}
+
+        # Price trend calculation
+        price_change_from_high = 0
+        if high > 0 and price > 0:
+            price_change_from_high = round(((price - high) / high) * 100, 1)
+
+        # Gap fade calculation
+        gap_fade = health_metrics.get('gap_fade_pct', 0)
+
+        # Chase detection
+        in_entry_zone = health_metrics.get('in_entry_zone', False)
+        is_chasing = health_metrics.get('is_chasing', False)
+
+        # Health warning message
+        if health_status == 'DEAD':
+            health_warning = "CRITICAL: This stock is DEAD - gap has faded significantly and price is declining. DO NOT recommend entry."
+        elif health_status == 'COOLING':
+            health_warning = "CAUTION: This stock is COOLING - momentum is slowing. Only consider entry if VWAP zone is GREEN and price is stable."
+        elif is_chasing:
+            health_warning = "WARNING: Price is extended - DO NOT CHASE. Wait for pullback to entry zone."
+        else:
+            health_warning = ""
+
+        # Price trend description
+        if price_change_from_high <= -10:
+            price_trend = "FADING HARD - down significantly from day high"
+        elif price_change_from_high <= -5:
+            price_trend = "FADING - down from day high"
+        elif price_change_from_high <= -2:
+            price_trend = "Pulling back slightly from high"
+        elif price_change_from_high >= 0:
+            price_trend = "At or near day high"
+        else:
+            price_trend = "Stable"
+
         # LLM analysis from watchlist
-        llm_analysis = stock.get('llm_analysis', {})
+        llm_analysis = stock.get('llm_analysis') or {}
         catalyst_type = llm_analysis.get('catalyst_type', 'Unknown')
         catalyst_strength = llm_analysis.get('catalyst_strength', 5)
         has_definitive_catalyst = stock.get('has_definitive_catalyst', False)
@@ -294,6 +362,25 @@ class LLMValidator:
 
         # Time window name
         time_window = self._get_time_window(now)
+
+        # Risk/Reward - use runner zones if available, else calculate
+        if is_runner and runner:
+            entry_zone = runner.get('entry_zone') or {}
+            stop_zone = runner.get('stop_loss') or {}
+            entry_zone_price = entry_zone.get('low', price) if entry_zone else price
+            stop_zone_price = stop_zone.get('price', price * 0.95) if stop_zone else price * 0.95
+        else:
+            # For non-runners, estimate based on VWAP and recent support
+            entry_zone_price = vwap_data.get('vwap', price) if vwap_data else price
+            stop_zone_price = min(
+                indicators.get('support_1', price * 0.95) if indicators else price * 0.95,
+                price * 0.95
+            )
+
+        risk_dollars = max(0.01, entry_zone_price - stop_zone_price)  # Avoid zero/negative
+        risk_percent = (risk_dollars / entry_zone_price * 100) if entry_zone_price > 0 else 5.0
+        target_2r = entry_zone_price + (risk_dollars * 2)
+        target_3r = entry_zone_price + (risk_dollars * 3)
 
         # Build context dict
         context = {
@@ -368,22 +455,42 @@ class LLMValidator:
             'flag_pattern_detected': 'Unknown',
             'unfilled_gaps': 'Unknown',
 
-            # Exit signals (simplified - would need real exit signal data)
-            'exit_macd': 'OK',
-            'exit_volume': 'OK' if volume_ratio >= 3 else 'CAUTION',
-            'exit_jackknife': 'OK',
-            'exit_overall': 'HOLD',
+            # Health Status (CRITICAL for validation decisions)
+            'health_status': health_status,
+            'health_warning': health_warning,
+            'price_trend': price_trend,
+            'price_change_from_high': price_change_from_high,
+            'gap_fade_percent': gap_fade,
+            'in_entry_zone': 'Yes' if in_entry_zone else 'No',
+            'is_chasing': 'Yes' if is_chasing else 'No',
 
-            # Risk/Reward
-            'entry_zone_price': price,
-            'stop_zone_price': price * 0.95,
-            'risk_dollars': price * 0.05,
-            'risk_percent': 5.0,
-            'target_2r': price * 1.10,
-            'target_3r': price * 1.15,
+            # Exit signals (derived from health metrics)
+            'exit_macd': 'CAUTION' if price_change_from_high < -5 else 'OK',
+            'exit_volume': 'WARNING' if (health_metrics.get('volume_declining', False) or volume_ratio < 3) else 'OK',
+            'exit_jackknife': 'CAUTION' if gap_fade > 20 else 'OK',
+            'exit_overall': self._get_exit_overall(health_status, price_change_from_high, volume_ratio, gap_fade, health_metrics),
+
+            # Risk/Reward (use runner zones if available)
+            'entry_zone_price': entry_zone_price,
+            'stop_zone_price': stop_zone_price,
+            'risk_dollars': risk_dollars,
+            'risk_percent': risk_percent,
+            'target_2r': target_2r,
+            'target_3r': target_3r,
         }
 
         return context
+
+    def _get_exit_overall(self, health_status: str, price_change: float, volume_ratio: float, gap_fade: float, health_metrics: Dict) -> str:
+        """Determine overall exit status based on health metrics"""
+        if health_status == 'DEAD':
+            return 'EXIT - Stock is DEAD'
+        elif health_status == 'COOLING':
+            return 'CAUTION - Momentum slowing'
+        elif price_change < -5 or health_metrics.get('volume_declining', False) or volume_ratio < 3:
+            return 'CAUTION'
+        else:
+            return 'HOLD'
 
     def _calculate_5_pillars(self, stock: Dict) -> Dict[str, Any]:
         """Calculate 5 Pillars score for Warrior Trading"""
@@ -391,8 +498,9 @@ class LLMValidator:
         volume = stock.get('volume_ratio', 0) >= 5
         float_ok = stock.get('float', float('inf')) <= 20_000_000
         price = 2 <= stock.get('price', 0) <= 20
+        llm_analysis_data = stock.get('llm_analysis') or {}
         catalyst = stock.get('has_definitive_catalyst', False) or \
-                   stock.get('llm_analysis', {}).get('catalyst_strength', 0) >= 7
+                   llm_analysis_data.get('catalyst_strength', 0) >= 7
 
         score = sum([gap, volume, float_ok, price, catalyst])
 
@@ -539,8 +647,8 @@ class LLMValidator:
         if not runner:
             return 'Not a multi-day runner'
 
-        entry_zones = runner.get('entry_zones', [])
-        stop_zone = runner.get('stop_zone', {})
+        entry_zones = runner.get('entry_zones') or []
+        stop_zone = runner.get('stop_zone') or {}
 
         lines = [
             f"**Status:** {runner.get('status', 'Unknown')}",
@@ -561,26 +669,15 @@ class LLMValidator:
 
     def _get_system_prompt(self) -> str:
         """Get system prompt from config"""
-        validation = self._prompts.get('validation', {})
+        prompts = self._prompts or {}
+        validation = prompts.get('validation') or {}
         return validation.get('system_prompt', 'You are a trading validator. Output valid JSON only.')
 
     def _build_user_prompt(self, context: Dict[str, Any]) -> str:
         """Build user prompt with variable substitution"""
-        validation = self._prompts.get('validation', {})
-
-        # Get template
-        template = self._prompts.get('user_prompt_template', '')
-
-        # Get guidelines
-        guidelines = '\n'.join([
-            validation.get('signal_guidelines', ''),
-            validation.get('timing_guidelines', ''),
-            validation.get('risk_guidelines', ''),
-            validation.get('confidence_guidelines', ''),
-        ])
-
-        # Get JSON schema
-        json_schema = validation.get('json_schema', '{}')
+        # Get template - simplified prompt already includes JSON example
+        prompts = self._prompts or {}
+        template = prompts.get('user_prompt_template', '')
 
         # Substitute variables in template
         try:
@@ -589,10 +686,100 @@ class LLMValidator:
             _logger.warning(f"Missing template variable: {e}")
             user_prompt = template
 
-        # Combine with guidelines and schema
-        full_prompt = f"{user_prompt}\n\n{guidelines}\n\nOutput JSON matching this schema:\n{json_schema}"
+        return user_prompt
 
-        return full_prompt
+    def _extract_json_from_response(self, raw_response: str, symbol: str) -> Optional[Dict]:
+        """
+        Extract and parse JSON from LLM response with robust error handling.
+
+        This provides an additional parsing layer on top of the Ollama provider's
+        JSON repair logic, specifically tuned for our validation response format.
+        """
+        if not raw_response or not raw_response.strip():
+            _logger.warning(f"[{symbol}] Empty response from LLM")
+            return None
+
+        content = raw_response.strip()
+
+        # Remove markdown code blocks
+        if '```json' in content:
+            content = content.split('```json')[1].split('```')[0].strip()
+        elif '```' in content:
+            parts = content.split('```')
+            if len(parts) >= 2:
+                content = parts[1].strip()
+
+        # Try direct parse first
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            pass
+
+        # Try to extract JSON object from surrounding text
+        match = re.search(r'\{[\s\S]*\}', content)
+        if match:
+            json_str = match.group(0)
+
+            # Repair trailing commas
+            json_str = re.sub(r',\s*([}\]])', r'\1', json_str)
+
+            # Fix single quotes
+            json_str = re.sub(r"'(\w+)':", r'"\1":', json_str)
+            json_str = re.sub(r":\s*'([^']*)'", r': "\1"', json_str)
+
+            try:
+                return json.loads(json_str)
+            except json.JSONDecodeError:
+                pass
+
+        # Try to find our specific fields to validate it looks like our expected format
+        # and build a partial result
+        if '"signal"' in content or "'signal'" in content:
+            _logger.warning(f"[{symbol}] Response contains 'signal' but JSON parsing failed. Raw: {content[:300]}...")
+
+        return None
+
+    def _call_llm_with_json_extraction(self, symbol: str, user_prompt: str, system_prompt: str) -> Dict[str, Any]:
+        """
+        Call LLM and attempt JSON extraction with enhanced error handling.
+
+        Returns dict with 'success', 'content' (parsed dict if success), and 'error' keys.
+        Also returns 'raw_response' for debugging.
+        """
+        # First try the provider's built-in complete_json
+        result = self._provider.complete_json(user_prompt, system_prompt)
+
+        if result['success']:
+            return result
+
+        # If complete_json failed, try our own extraction on the raw response
+        # We need to call complete() to get the raw text
+        raw_result = self._provider.complete(user_prompt, system_prompt)
+
+        if not raw_result['success']:
+            _logger.error(f"[{symbol}] LLM request failed: {raw_result.get('error')}")
+            return raw_result
+
+        raw_response = raw_result.get('content', '')
+        _logger.warning(f"[{symbol}] Provider JSON parse failed. Attempting custom extraction. Raw ({len(raw_response)} chars): {raw_response[:500]}...")
+
+        # Try our custom extraction
+        parsed = self._extract_json_from_response(raw_response, symbol)
+
+        if parsed:
+            _logger.info(f"[{symbol}] Custom JSON extraction succeeded")
+            return {
+                'success': True,
+                'content': parsed,
+                'raw_response': raw_response
+            }
+
+        _logger.error(f"[{symbol}] All JSON extraction attempts failed. Full raw response: {raw_response}")
+        return {
+            'success': False,
+            'error': 'Failed to extract valid JSON from LLM response',
+            'raw_response': raw_response
+        }
 
     def _parse_llm_response(self, symbol: str, content: Dict) -> ValidationResult:
         """Parse LLM JSON response into ValidationResult"""
@@ -611,9 +798,11 @@ class LLMValidator:
         )
 
     def _get_fallback_result(self, symbol: str, context: Dict) -> ValidationResult:
-        """Return fallback result when LLM is unavailable"""
-        fallback = self._prompts.get('fallback', {})
+        """Return fallback result when LLM is unavailable - NOT cached"""
+        prompts = self._prompts or {}
+        fallback = prompts.get('fallback') or {}
 
+        # NOTE: Fallback results are NOT cached, so next refresh will retry
         return ValidationResult(
             signal=fallback.get('signal', 'wait'),
             entry_price=None,

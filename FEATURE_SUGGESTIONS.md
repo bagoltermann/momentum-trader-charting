@@ -40,6 +40,92 @@ This document tracks feature enhancements - both implemented and planned.
 
 ## Recently Implemented ✅
 
+### LLM Validation Health-Aware + NoneType Fix (v1.4.2) - Jan 2026
+**Status**: ✅ Complete
+**Source**: [session-notes/2026-01-23.md](session-notes/2026-01-23.md)
+
+**Problems Solved**:
+- DEAD stocks getting BUY signals (example pollution from hardcoded JSON)
+- Stocks with null `llm_analysis` causing NoneType validation errors
+- Missing health context in LLM prompt (no awareness of DEAD/COOLING status)
+- Watchlist showing DEAD stocks (should match trader app behavior)
+
+**Features**:
+1. **Health-Aware Validation** - DEAD stocks always get `no_trade`, COOLING gets `wait`
+2. **NoneType Safety** - All `.get()` patterns now use `or {}` to handle null values
+3. **DEAD Stock Filter** - `/watchlist` endpoint filters DEAD by default (`?include_dead=true` to override)
+4. **Rich Health Context** - LLM now sees health_status, price_trend, gap_fade, chase risk
+
+**Technical Details**:
+- Python `.get('key', {})` returns None if key exists but value is None - use `or {}` pattern
+- Added CRITICAL RULES to prompt template enforcing health-based signals
+- Context builder extracts health_metrics for price trend calculation
+
+**Files**:
+- `backend/services/llm_validator.py` - NoneType fixes, health context builder
+- `backend/api/routes.py` - DEAD stock filter on `/watchlist`
+- `config/prompts/validation_prompt.yaml` - v1.2.0 with HEALTH STATUS section
+
+---
+
+### LLM Validation Reliability (v1.4.1) - Jan 2026
+**Status**: ✅ Complete
+**Source**: [session-notes/2026-01-23.md](session-notes/2026-01-23.md)
+
+**Problems Solved**:
+- LLM validation JSON parsing failures (intermittent "Unable to Validate" errors)
+- Tooltips going off bottom of page
+- Top 3 panel too tall (3rd stock hidden)
+- Runners excluded from Top 3 (wrong 5 Pillars calculation)
+- Windows backend crash overnight (asyncio ProactorEventLoop)
+
+**Features**:
+1. **Robust JSON Extraction** - Two-layer parsing (provider + custom) with error logging
+2. **Top 3 Tooltips** - Hover to see 5 Pillars, quality score, LLM signal, reasoning
+3. **Runner Support in Top 3** - Uses Day 1 gap/volume instead of today's values
+4. **Windows Stability** - WindowsSelectorEventLoopPolicy for asyncio
+
+**Technical Details**:
+- `_extract_json_from_response()` - Extracts JSON from markdown, surrounding text
+- `_call_llm_with_json_extraction()` - Logs raw response on failures at WARNING level
+- `calculate5Pillars()` - Now handles `continuation_play` stocks correctly
+- Tooltip CSS uses `transform: translateY(-100%)` to grow upward
+
+**Files**:
+- `backend/services/llm_validator.py` - JSON extraction, retry logic
+- `backend/main.py` - Windows asyncio policy
+- `src/renderer/store/validationStore.ts` - Runner 5 Pillars fix
+- `src/renderer/components/panels/Top3ValidationPanel.tsx` - Tooltip component
+- `src/renderer/styles/global.css` - Tooltip and panel compaction
+
+---
+
+### LLM Validation Feature (v1.4.0) - Jan 2026
+**Status**: ✅ Complete
+**Source**: [session-notes/2026-01-22.md](session-notes/2026-01-22.md)
+
+**Features Implemented**:
+- **Ollama LLM Integration** - Reuses momentum-trader's qwen2.5:7b infrastructure
+- **Top 3 Auto-Validation** - Ranks watchlist by Warrior Trading criteria, validates top 3
+- **Manual Validation** - Button in header to validate selected chart
+- **Validation Panels** - Top3ValidationPanel and ManualValidationPanel UI components
+- **Auto-Start Ollama** - Launcher checks and starts Ollama if not running
+
+**Technical Details**:
+- Backend validates via `/api/validate/{symbol}` endpoint
+- 60-second cache prevents duplicate LLM calls
+- Zustand store manages validation state
+- Rich prompt includes 5 Pillars, VWAP, EMAs, catalyst, exit signals
+
+**Files**:
+- `backend/services/llm_validator.py` - LLM validation service
+- `config/prompts/validation_prompt.yaml` - LLM prompt template
+- `src/renderer/store/validationStore.ts` - Validation state management
+- `src/renderer/components/panels/Top3ValidationPanel.tsx` - Top 3 UI
+- `src/renderer/components/panels/ManualValidationPanel.tsx` - Manual validation UI
+
+---
+
 ### Phase 4: Pattern Overlays (v1.3.0) - Jan 2026
 **Status**: ✅ Complete
 **Source**: [session-notes/2026-01-16.md](session-notes/2026-01-16.md)
@@ -509,5 +595,5 @@ Share chart screenshots to chat channels.
 
 ---
 
-**Last Updated**: 2026-01-16
+**Last Updated**: 2026-01-23
 **Maintain this file** as features are implemented and new ideas emerge

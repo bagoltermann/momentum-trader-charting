@@ -7,6 +7,7 @@ This index tracks all development sessions for the Momentum Trader Charting comp
 
 | Date | Topics | Key Changes | Status |
 |------|--------|-------------|--------|
+| 2026-01-23 | LLM Validation Health-Aware + NoneType | Fixed DEAD stock BUY signals, NoneType validation errors, health-aware prompts, DEAD filter on watchlist | ✅ Complete |
 | 2026-01-22 | LLM Validation Feature | Added Ollama-powered validation with Top3 panel, manual validate button, auto-start Ollama in launcher | ✅ Complete |
 | 2026-01-20 | Chart switching fix (async httpx) | Fixed blank charts by converting sync httpx to async, shared candle store | ✅ Complete |
 | 2026-01-19 | Exit button fix | Fixed async/await on IPC call for Exit button | ✅ Complete |
@@ -25,4 +26,4 @@ This index tracks all development sessions for the Momentum Trader Charting comp
 
 ---
 
-**Last Updated**: 2026-01-22
+**Last Updated**: 2026-01-23

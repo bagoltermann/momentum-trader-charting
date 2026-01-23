@@ -1,8 +1,8 @@
 # ============================================================================
 # LLM Signal Validation Prompts Configuration
 # ============================================================================
-# Version: 1.0.0
-# Last Updated: 2026-01-22
+# Version: 1.2.0
+# Last Updated: 2026-01-23
 #
 # This file contains LLM prompts for real-time signal validation.
 # Edit these prompts to tune validation behavior without code changes.
@@ -29,132 +29,20 @@ validation:
     - Risk/reward must be at least 2:1
     - Exit signals should NOT already be triggered
 
-    Output format: Valid JSON only, no markdown formatting.
+    CRITICAL: You must respond with ONLY a valid JSON object. No markdown, no explanation, no text before or after. Just the JSON.
 
   # JSON schema the LLM should output
   json_schema: |
     {
-      "signal": "<buy|wait|no_trade>",
-      "entry_price": <suggested entry price or null>,
-      "stop_price": <stop loss price or null>,
-      "target_price": <profit target price or null>,
-      "confidence": <0-100 integer>,
-      "reasoning": ["<reason 1>", "<reason 2>", "<reason 3>"],
-      "risk_reward_ratio": <R:R ratio like 2.5 or null>,
-      "key_concern": "<primary risk factor or null>"
+      "signal": "buy|wait|no_trade",
+      "entry_price": number or null,
+      "stop_price": number or null,
+      "target_price": number or null,
+      "confidence": 0-100,
+      "reasoning": ["reason 1", "reason 2", "reason 3"],
+      "risk_reward_ratio": number or null,
+      "key_concern": "string or null"
     }
-
-  # Signal decision guidelines
-  signal_guidelines: |
-    SIGNAL DECISION GUIDELINES:
-
-    BUY signal when:
-    - 5 Pillars score >= 4.0
-    - VWAP zone is GREEN or YELLOW (not RED)
-    - Volume ratio >= 5x
-    - Timeframes mostly aligned (3+ bullish)
-    - No exit signals triggered
-    - Risk/reward >= 2:1
-    - First 2 hours of market (before 11:30 AM)
-
-    WAIT signal when:
-    - Setup is good but timing is off
-    - Price extended from VWAP (YELLOW zone) - wait for pullback
-    - Volume declining - wait for confirmation
-    - Exit signals showing CAUTION
-    - Mid-day (11:30 AM - 1:00 PM) - wait for clarity
-
-    NO_TRADE signal when:
-    - 5 Pillars score < 3.5
-    - VWAP zone is RED (chase territory)
-    - Volume ratio < 3x
-    - Exit signals already triggered
-    - Float too large (>50M)
-    - Late in day (after 3:00 PM for new entries)
-    - Risk/reward < 1.5:1
-
-  # Entry timing guidelines
-  timing_guidelines: |
-    ENTRY TIMING GUIDELINES:
-
-    Time Windows:
-    - PRIME TIME (9:30-10:30 AM): Best momentum, most setups work
-    - MORNING (10:30-11:30 AM): Still good, be more selective
-    - LUNCH (11:30 AM-1:00 PM): Typically slow, WAIT for clarity
-    - AFTERNOON (1:00-3:00 PM): Watch for reversals
-    - POWER HOUR (3:00-4:00 PM): Quick moves, NO new entries
-
-    Signal Freshness:
-    - FRESH (Day 0 gap): Highest priority
-    - DAY 2 (Continuation): Valid if holding key levels
-    - DAY 3+: Be very selective, momentum fading
-
-    VWAP Zones:
-    - GREEN (<2.5% from VWAP): Ideal entry zone
-    - YELLOW (2.5-3.5%): Acceptable but elevated risk
-    - RED (>3.5%): Chase territory, WAIT for pullback
-
-  # Risk/reward guidelines
-  risk_guidelines: |
-    RISK/REWARD GUIDELINES:
-
-    Entry Price:
-    - Ideal: Near VWAP or at support level
-    - Acceptable: At micro-pullback consolidation breakout
-    - Avoid: Extended from VWAP with no support nearby
-
-    Stop Placement:
-    - Below VWAP (for VWAP entries)
-    - Below consolidation low (for breakout entries)
-    - Maximum 5% from entry (risk management)
-
-    Target Setting:
-    - target_1: 2R (2x risk from entry)
-    - target_2: 3R (3x risk from entry)
-    - Use resistance levels if closer than R targets
-
-    Minimum Requirements:
-    - Risk/reward >= 2:1 for BUY signal
-    - Risk/reward >= 1.5:1 for WAIT signal
-    - Below 1.5:1 = NO_TRADE
-
-  # Confidence scoring guidelines
-  confidence_guidelines: |
-    CONFIDENCE SCORING (0-100):
-
-    90-100: Perfect setup
-    - All 5 Pillars pass
-    - GREEN VWAP zone
-    - 10x+ volume
-    - All timeframes aligned
-    - Strong catalyst
-    - First hour of trading
-
-    70-89: Strong setup
-    - 4+ Pillars pass
-    - GREEN/YELLOW VWAP zone
-    - 5x+ volume
-    - Most timeframes aligned
-    - Known catalyst
-
-    50-69: Acceptable setup
-    - 3.5+ Pillars
-    - YELLOW VWAP zone
-    - 3x+ volume
-    - Mixed timeframe alignment
-    - Catalyst present but not definitive
-
-    30-49: Weak setup (WAIT or NO_TRADE)
-    - Some concerns present
-    - Extended from VWAP
-    - Volume declining
-    - Late in session
-
-    0-29: Poor setup (NO_TRADE)
-    - Multiple red flags
-    - Exit signals triggered
-    - Float too large
-    - No clear catalyst
 
 # User prompt template with variable substitution
 user_prompt_template: |
@@ -228,6 +116,17 @@ user_prompt_template: |
 
   {runner_section}
 
+  ## HEALTH STATUS
+
+  **Current Status:** {health_status}
+  **Price Trend:** {price_trend}
+  **Price Change from High:** {price_change_from_high}%
+  **Gap Fade:** {gap_fade_percent}%
+  **In Entry Zone:** {in_entry_zone}
+  **Chasing:** {is_chasing}
+
+  {health_warning}
+
   ## PATTERN DETECTION
 
   - **Micro-Pullback:** {micro_pullback_detected}
@@ -254,13 +153,31 @@ user_prompt_template: |
 
   ---
 
-  Based on Warrior Trading methodology, validate this setup and provide your signal recommendation as JSON.
+  Based on Warrior Trading methodology, validate this setup.
+
+  CRITICAL RULES:
+  - If health_status is "DEAD" → signal MUST be "no_trade" with confidence ≤20
+  - If health_status is "COOLING" → signal "wait" UNLESS both: VWAP zone is GREEN AND price stable/rising
+  - If is_chasing is "Yes" → signal MUST be "wait" (never chase extended prices)
+  - If price is DOWN more than 5% from day high → strong bias toward "wait" or "no_trade"
+  - Only signal "buy" for HOT or fresh setups with favorable VWAP zone and volume
+
+  Respond with ONLY valid JSON (no markdown, no explanation):
+  {
+    "signal": "buy" or "wait" or "no_trade",
+    "entry_price": number based on Entry Zone above or null,
+    "stop_price": number based on Stop Zone above or null,
+    "target_price": number for 2-3R target or null,
+    "confidence": 0-100 based on setup quality,
+    "reasoning": ["reason 1", "reason 2", "reason 3"],
+    "risk_reward_ratio": calculated ratio or null,
+    "key_concern": "primary risk factor" or null
+  }
 
 # Fallback values when LLM is unavailable
 fallback:
   signal: "wait"
   confidence: 0
   reasoning:
-    - "LLM validation unavailable"
-    - "Manual review recommended"
-  key_concern: "Unable to validate - proceed with caution"
+    - "LLM validation pending"
+  key_concern: "Retry in progress"
