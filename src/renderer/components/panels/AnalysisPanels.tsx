@@ -1,11 +1,14 @@
-import React, { useMemo } from 'react'
+import React from 'react'
 import { Runner } from '../../hooks/useRunners'
 import { SignalStrengthGauge } from './SignalStrengthGauge'
 import { TimeframeAlignment } from './TimeframeAlignment'
 import { ExitSignalDashboard } from './ExitSignalDashboard'
 import { HistoricalPatternMatch } from './HistoricalPatternMatch'
 import { PatternOverlayControls } from './PatternOverlayControls'
-import { detectSupportResistance, detectGaps, detectFlagPennant, Candle } from '../../utils/indicators'
+import { Top3ValidationPanel } from './Top3ValidationPanel'
+import { ManualValidationPanel } from './ManualValidationPanel'
+import { useCandleDataStore } from '../../store/candleDataStore'
+import { useChartStore } from '../../store/chartStore'
 
 interface LLMAnalysis {
   catalyst_type?: string
@@ -28,55 +31,45 @@ interface AnalysisPanelsProps {
   selectedSymbol: string | null
   watchlist: WatchlistItem[]
   runners: Runner[]
-  rawCandles?: Candle[]
 }
 
 export function AnalysisPanels({
   selectedSymbol,
   watchlist,
   runners,
-  rawCandles = []
 }: AnalysisPanelsProps) {
-  // Calculate pattern counts for the controls panel
-  const supportResistanceCount = useMemo(() => {
-    if (rawCandles.length < 50) return 0
-    return detectSupportResistance(rawCandles).length
-  }, [rawCandles])
-
-  const gapCount = useMemo(() => {
-    if (rawCandles.length < 2) return 0
-    return detectGaps(rawCandles).length
-  }, [rawCandles])
-
-  const flagPennantDetected = useMemo(() => {
-    if (rawCandles.length < 15) return false
-    const pattern = detectFlagPennant(rawCandles)
-    return pattern !== null && pattern.detected
-  }, [rawCandles])
+  // Get candle data from shared store (fetched by MultiChartGrid)
+  const { primaryCandles, primaryLoading, primaryError } = useCandleDataStore()
+  const { setSelectedSymbol } = useChartStore()
 
   return (
     <div className="analysis-panels">
+      <Top3ValidationPanel onSelectSymbol={setSelectedSymbol} />
+      <ManualValidationPanel />
       <SignalStrengthGauge
         selectedSymbol={selectedSymbol}
         watchlist={watchlist}
         runners={runners}
+        candles={primaryCandles}
       />
       <TimeframeAlignment
         selectedSymbol={selectedSymbol}
+        candles={primaryCandles}
+        loading={primaryLoading}
+        error={primaryError}
       />
       <ExitSignalDashboard
         selectedSymbol={selectedSymbol}
+        candles={primaryCandles}
+        loading={primaryLoading}
+        error={primaryError}
       />
       <HistoricalPatternMatch
         selectedSymbol={selectedSymbol}
         runners={runners}
         watchlist={watchlist}
       />
-      <PatternOverlayControls
-        supportResistanceCount={supportResistanceCount}
-        gapCount={gapCount}
-        flagPennantDetected={flagPennantDetected}
-      />
+      <PatternOverlayControls />
     </div>
   )
 }

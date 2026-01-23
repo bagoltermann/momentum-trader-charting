@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react'
 import { Runner } from '../../hooks/useRunners'
-import { useCandleData } from '../../hooks/useCandleData'
+import { CandleWithVolume } from '../../store/candleDataStore'
 import { calculateVWAPBands } from '../../utils/indicators'
 
 interface LLMAnalysis {
@@ -24,6 +24,7 @@ interface SignalStrengthGaugeProps {
   selectedSymbol: string | null
   watchlist: WatchlistItem[]
   runners: Runner[]
+  candles: CandleWithVolume[]
 }
 
 interface SignalFactor {
@@ -350,10 +351,9 @@ function getImpactIcon(impact: SignalFactor['impact']): string {
 export function SignalStrengthGauge({
   selectedSymbol,
   watchlist,
-  runners
+  runners,
+  candles
 }: SignalStrengthGaugeProps) {
-  // Fetch candle data for VWAP calculation
-  const { candles } = useCandleData(selectedSymbol, '1m')
 
   // Calculate current price and VWAP from candle data
   const { currentPrice, vwapPrice } = useMemo(() => {

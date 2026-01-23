@@ -1,11 +1,14 @@
 import React, { useMemo } from 'react'
-import { useCandleData } from '../../hooks/useCandleData'
+import { CandleWithVolume } from '../../store/candleDataStore'
 import { Candle } from '../../utils/indicators'
 
 interface ExitSignalDashboardProps {
   selectedSymbol: string | null
   entryPrice?: number
   stopPrice?: number
+  candles: CandleWithVolume[]
+  loading: boolean
+  error: string | null
 }
 
 interface ExitSignal {
@@ -276,9 +279,11 @@ function getOverallClass(status: ExitAnalysis['overallStatus']): string {
 export function ExitSignalDashboard({
   selectedSymbol,
   entryPrice,
-  stopPrice
+  stopPrice,
+  candles,
+  loading,
+  error
 }: ExitSignalDashboardProps) {
-  const { candles, loading, error } = useCandleData(selectedSymbol, '1m')
 
   const analysis = useMemo(() => {
     if (!selectedSymbol || !candles || candles.length === 0) return null

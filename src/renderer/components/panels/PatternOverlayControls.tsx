@@ -1,17 +1,7 @@
 import React from 'react'
 import { usePatternOverlayStore } from '../../store/patternOverlayStore'
 
-interface PatternOverlayControlsProps {
-  supportResistanceCount: number
-  gapCount: number
-  flagPennantDetected: boolean
-}
-
-export function PatternOverlayControls({
-  supportResistanceCount,
-  gapCount,
-  flagPennantDetected
-}: PatternOverlayControlsProps) {
+export function PatternOverlayControls() {
   const {
     showSupportResistance,
     showGaps,
@@ -33,9 +23,6 @@ export function PatternOverlayControls({
           title="Support/Resistance levels"
         >
           <span className="toggle-label">S/R</span>
-          {supportResistanceCount > 0 && (
-            <span className="count">({supportResistanceCount})</span>
-          )}
         </button>
 
         <button
@@ -44,9 +31,6 @@ export function PatternOverlayControls({
           title="Price gaps"
         >
           <span className="toggle-label">Gaps</span>
-          {gapCount > 0 && (
-            <span className="count">({gapCount})</span>
-          )}
         </button>
 
         <button
@@ -55,9 +39,6 @@ export function PatternOverlayControls({
           title="Flag/Pennant patterns"
         >
           <span className="toggle-label">Flag</span>
-          {flagPennantDetected && (
-            <span className="detected-indicator" title="Pattern detected"></span>
-          )}
         </button>
       </div>
     </div>

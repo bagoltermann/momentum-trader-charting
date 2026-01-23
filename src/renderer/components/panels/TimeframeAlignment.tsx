@@ -1,9 +1,12 @@
 import React, { useMemo } from 'react'
 import { Candle, calculateVWAPBands } from '../../utils/indicators'
-import { useCandleData } from '../../hooks/useCandleData'
+import { CandleWithVolume } from '../../store/candleDataStore'
 
 interface TimeframeAlignmentProps {
   selectedSymbol: string | null
+  candles: CandleWithVolume[]
+  loading: boolean
+  error: string | null
 }
 
 interface TimeframeSignal {
@@ -204,10 +207,11 @@ function getDirectionClass(direction: TimeframeSignal['direction']): string {
 }
 
 export function TimeframeAlignment({
-  selectedSymbol
+  selectedSymbol,
+  candles: candles1m,
+  loading,
+  error
 }: TimeframeAlignmentProps) {
-  // Fetch candle data using the hook
-  const { candles: candles1m, loading, error } = useCandleData(selectedSymbol, '1m')
 
   // Calculate VWAP from candle data
   const vwapData = useMemo(() => {

@@ -1,8 +1,12 @@
 import React from 'react'
 import { useWatchlistStore } from '../../store/watchlistStore'
+import { useChartStore } from '../../store/chartStore'
+import { useValidationStore } from '../../store/validationStore'
 
 export function Header() {
   const { connectionStatus, lastUpdate } = useWatchlistStore()
+  const { selectedSymbol } = useChartStore()
+  const { validateManual, isManualValidating, llmAvailable } = useValidationStore()
 
   const handleExit = async () => {
     console.log('Exit button clicked')
@@ -36,6 +40,14 @@ export function Header() {
             Last update: {lastUpdate.toLocaleTimeString()}
           </span>
         )}
+        <button
+          className="validate-btn"
+          onClick={() => selectedSymbol && validateManual(selectedSymbol)}
+          disabled={!selectedSymbol || isManualValidating || !llmAvailable}
+          title={!llmAvailable ? "LLM offline" : !selectedSymbol ? "Select a symbol first" : `Validate ${selectedSymbol}`}
+        >
+          {isManualValidating ? 'Validating...' : 'Validate'}
+        </button>
         <button
           className="exit-btn"
           onClick={handleExit}

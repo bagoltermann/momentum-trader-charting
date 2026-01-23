@@ -7,6 +7,7 @@ import logging
 import asyncio
 from services.schwab_client import ChartSchwabClient
 from services.file_watcher import get_cached_watchlist, get_cached_runners
+from services.llm_validator import get_validator, ValidationResult
 from core.config import load_config
 
 # Setup logger (uses same file as schwab_client)
@@ -147,3 +148,77 @@ async def get_trade_history():
         raise HTTPException(status_code=500, detail=f"Failed to load trade history: {e}")
 
     return trades
+
+
+@router.post("/validate/{symbol}")
+async def validate_signal(symbol: str):
+    """
+    Validate a stock setup using LLM analysis.
+
+    Returns signal (buy/wait/no_trade), price levels, confidence, and reasoning.
+    Results are cached for 60 seconds.
+    """
+    _logger.info(f"POST /validate/{symbol} started")
+
+    # Get context data
+    watchlist = get_cached_watchlist()
+    if watchlist is None:
+        raise HTTPException(status_code=503, detail="Watchlist not available")
+
+    # Check if symbol is in watchlist
+    if not any(s.get('symbol') == symbol for s in watchlist):
+        raise HTTPException(status_code=400, detail=f"Symbol {symbol} not in watchlist")
+
+    runners = get_cached_runners() or {}
+
+    # Get real-time quote
+    client = get_schwab_client()
+    try:
+        quote = await client.get_quote(symbol)
+    except Exception as e:
+        _logger.warning(f"Failed to get quote for {symbol}: {e}")
+        quote = None
+
+    # Get candles for technical indicators
+    try:
+        candles = await client.get_price_history(
+            symbol,
+            frequency_type="minute",
+            frequency=1,
+            period_type="day",
+            period=1
+        )
+    except Exception as e:
+        _logger.warning(f"Failed to get candles for {symbol}: {e}")
+        candles = None
+
+    # Get validator and validate
+    config = load_config()
+    validator = get_validator(config)
+
+    try:
+        result = await validator.validate_signal(
+            symbol=symbol,
+            watchlist=watchlist,
+            runners=runners,
+            quote=quote,
+            candles=candles
+        )
+
+        _logger.info(f"POST /validate/{symbol} completed: {result.signal}")
+        return result.to_dict()
+
+    except Exception as e:
+        _logger.error(f"Validation failed for {symbol}: {e}")
+        raise HTTPException(status_code=500, detail=f"Validation failed: {str(e)}")
+
+
+@router.get("/validate/status")
+async def validation_status():
+    """Check if LLM validation is available"""
+    config = load_config()
+    validator = get_validator(config)
+    return {
+        "available": validator.is_available(),
+        "cache_ttl_seconds": 60
+    }

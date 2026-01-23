@@ -39,6 +39,11 @@ httpx>=0.26.0
 websockets>=12.0
 python-socketio>=5.10.0
 
+# LLM Validation (reuses OllamaProvider from momentum-trader)
+# NOTE: Ollama setup is handled by momentum-trader app
+requests>=2.31.0
+colorlog>=6.8.0
+
 # ===================================================================
 # DATA SOURCES
 # ===================================================================

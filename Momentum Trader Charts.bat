@@ -161,10 +161,39 @@ echo layout:
 echo   primary_chart_ratio: 0.6
 echo   secondary_grid: "2x2"
 echo   heatmap_height: 80
+echo.
+echo # LLM validation settings
+echo llm:
+echo   enabled: true
+echo   ollama:
+echo     base_url: "http://localhost:11434"
+echo     model: "qwen2.5:7b"
+echo     max_tokens: 1000
+echo     temperature: 0.3
 ) > "%CHARTING_DIR%\config\charting.yaml"
 
 echo   Config updated: %CHARTING_DIR%\config\charting.yaml
 echo   Data directory: %MOMENTUM_DIR%\data
+echo.
+
+REM ============================================================================
+REM START OLLAMA (for LLM validation)
+REM ============================================================================
+
+echo Checking Ollama status...
+
+REM Check if Ollama is already running by testing the API
+curl -s http://localhost:11434/api/tags >nul 2>&1
+IF %ERRORLEVEL% NEQ 0 (
+    echo   Ollama not running, starting...
+    REM Start Ollama in background (hidden window)
+    start "" /B ollama serve >nul 2>&1
+    REM Wait a moment for Ollama to start
+    timeout /t 3 /nobreak >nul
+    echo   Ollama started
+) ELSE (
+    echo   Ollama already running
+)
 echo.
 
 REM ============================================================================

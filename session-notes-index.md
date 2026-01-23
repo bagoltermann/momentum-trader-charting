@@ -7,6 +7,9 @@ This index tracks all development sessions for the Momentum Trader Charting comp
 
 | Date | Topics | Key Changes | Status |
 |------|--------|-------------|--------|
+| 2026-01-22 | LLM Validation Feature | Added Ollama-powered validation with Top3 panel, manual validate button, auto-start Ollama in launcher | ✅ Complete |
+| 2026-01-20 | Chart switching fix (async httpx) | Fixed blank charts by converting sync httpx to async, shared candle store | ✅ Complete |
+| 2026-01-19 | Exit button fix | Fixed async/await on IPC call for Exit button | ✅ Complete |
 | 2026-01-16 | Backend event loop bugfix | Fixed asyncio shutdown causing chart switching issues | ✅ Complete |
 | 2026-01-15 | Project setup, smart launcher, Phase 3 panels, Exit button, hidden launch | Startup scripts, .clinerules, analysis panels, Exit button + hidden terminal launch | ✅ Complete |
 
@@ -22,4 +25,4 @@ This index tracks all development sessions for the Momentum Trader Charting comp
 
 ---
 
-**Last Updated**: 2026-01-16
+**Last Updated**: 2026-01-22
