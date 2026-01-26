@@ -80,8 +80,8 @@ export function EnhancedChart({
 
   const chartContainerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
-  // Track previous data for incremental updates
-  const prevDataRef = useRef<{ count: number; lastTime: number; symbol: string }>({ count: 0, lastTime: 0, symbol: '' })
+  // Track previous data for incremental updates (detect append vs full reload)
+  const prevDataRef = useRef<{ count: number; symbol: string }>({ count: 0, symbol: '' })
   const seriesRef = useRef<SeriesRefs>({
     candlestick: null,
     vwap: null,
@@ -299,6 +299,8 @@ export function EnhancedChart({
       lower2: lower2Series,
       priceLines: [],
     }
+    // Reset incremental tracking - new chart means first load should be full setData
+    prevDataRef.current = { count: 0, symbol: '' }
     debugLog(`[EnhancedChart] ${symbol} Effect1: Chart and series created successfully`)
 
     // Handle resize
@@ -348,7 +350,6 @@ export function EnhancedChart({
 
     const prev = prevDataRef.current
     const lastCandle = candles[candles.length - 1]
-    const lastTime = lastCandle.time as number
 
     // Determine if this is an incremental update:
     // Same symbol, count difference <= 1, and we had data before
@@ -417,8 +418,8 @@ export function EnhancedChart({
     }
 
     // Track current state for next comparison
-    prevDataRef.current = { count: candles.length, lastTime, symbol }
-  }, [candles, vwap, ema9, ema20, bands, bandUpper1, bandUpper2, bandLower1, bandLower2, volumeData])
+    prevDataRef.current = { count: candles.length, symbol }
+  }, [symbol, candles, vwap, ema9, ema20, bands, bandUpper1, bandUpper2, bandLower1, bandLower2, volumeData])
 
   // Effect 3: Update price lines (entry zones, patterns, etc.)
   useEffect(() => {
