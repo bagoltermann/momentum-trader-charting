@@ -13,6 +13,7 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import json
 import threading
+import time as time_module
 import httpx
 from typing import Optional, Dict, List
 
@@ -22,6 +23,21 @@ _cached_runners: Optional[Dict] = None
 _cache_lock = threading.Lock()
 _observer: Optional[Observer] = None
 _trader_api_url: str = "http://localhost:8080"
+
+# Watchlist TTL cache - avoid redundant trader API calls
+_watchlist_cache_time: float = 0
+_WATCHLIST_CACHE_TTL = 5.0  # seconds - fast enough for live trading
+
+# Reusable httpx client (avoids creating new client per request)
+_httpx_client: Optional[httpx.Client] = None
+
+
+def _get_httpx_client() -> httpx.Client:
+    """Get or create the reusable httpx client"""
+    global _httpx_client
+    if _httpx_client is None:
+        _httpx_client = httpx.Client(timeout=5.0)
+    return _httpx_client
 
 
 class DataFileHandler(FileSystemEventHandler):
@@ -62,18 +78,19 @@ def fetch_watchlist_from_trader() -> Optional[List[Dict]]:
     avoiding sync issues with watchlist_state.json (which contains
     all historical stocks, not just currently active ones).
     """
-    global _cached_watchlist
+    global _cached_watchlist, _watchlist_cache_time
     try:
-        with httpx.Client(timeout=5.0) as client:
-            response = client.get(f"{_trader_api_url}/api/watchlist")
-            response.raise_for_status()
-            watchlist = response.json()
+        client = _get_httpx_client()
+        response = client.get(f"{_trader_api_url}/api/watchlist")
+        response.raise_for_status()
+        watchlist = response.json()
 
-            with _cache_lock:
-                _cached_watchlist = watchlist
+        with _cache_lock:
+            _cached_watchlist = watchlist
+            _watchlist_cache_time = time_module.time()
 
-            print(f"[OK] Watchlist fetched from trader API: {len(watchlist)} stocks")
-            return watchlist
+        print(f"[OK] Watchlist fetched from trader API: {len(watchlist)} stocks")
+        return watchlist
     except httpx.ConnectError:
         print("[WARNING] Trader app not available - using cached watchlist")
         return None
@@ -117,10 +134,12 @@ def get_cached_watchlist(refresh: bool = False) -> Optional[List[Dict]]:
     Get watchlist, optionally refreshing from trader API.
 
     Args:
-        refresh: If True, fetch fresh data from trader API before returning
+        refresh: If True, fetch fresh data from trader API (but only if cache is stale)
     """
     if refresh:
-        fetch_watchlist_from_trader()
+        # Only actually fetch if cache is stale (older than TTL)
+        if time_module.time() - _watchlist_cache_time > _WATCHLIST_CACHE_TTL:
+            fetch_watchlist_from_trader()
 
     with _cache_lock:
         return _cached_watchlist
