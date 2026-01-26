@@ -81,6 +81,8 @@ export function EnhancedChart({
 
   const chartContainerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
+  // Track previous data for incremental updates
+  const prevDataRef = useRef<{ count: number; lastTime: number; symbol: string }>({ count: 0, lastTime: 0, symbol: '' })
   const seriesRef = useRef<SeriesRefs>({
     candlestick: null,
     vwap: null,
@@ -312,6 +314,7 @@ export function EnhancedChart({
   }, [symbol, height, timeframe, showVolume, showVWAP, showVWAPBands, showEMA9, showEMA20])
 
   // Effect 2: Update data (when candles or indicators change)
+  // Uses incremental updates when possible to avoid resetting zoom/scroll
   useEffect(() => {
     const series = seriesRef.current
     const chart = chartRef.current
@@ -323,50 +326,82 @@ export function EnhancedChart({
       return
     }
 
-    // Update candlestick data
-    if (candles.length > 0) {
-      debugLog(`[EnhancedChart] ${symbol} Effect2: Setting ${candles.length} candles`)
-      series.candlestick.setData(candles as CandlestickData<number>[])
-    } else {
+    if (candles.length === 0) {
       debugLog(`[EnhancedChart] ${symbol} Effect2: No candles to set`)
+      return
     }
 
-    // Update VWAP
-    if (series.vwap && vwap.length > 0) {
-      series.vwap.setData(vwap as LineData<number>[])
-    }
+    const prev = prevDataRef.current
+    const lastCandle = candles[candles.length - 1]
+    const lastTime = lastCandle.time as number
 
-    // Update EMAs
-    if (series.ema9 && ema9.length > 0) {
-      series.ema9.setData(ema9 as LineData<number>[])
-    }
-    if (series.ema20 && ema20.length > 0) {
-      series.ema20.setData(ema20 as LineData<number>[])
-    }
+    // Determine if this is an incremental update:
+    // Same symbol, count difference <= 1, and we had data before
+    const isIncremental = prev.symbol === symbol &&
+      prev.count > 0 &&
+      candles.length >= prev.count &&
+      candles.length <= prev.count + 1
 
-    // Update VWAP bands
-    if (series.upper1 && bands.length > 0) {
-      series.upper1.setData(bands.map(b => ({ time: b.time, value: b.upper1 })) as LineData<number>[])
-    }
-    if (series.upper2 && bands.length > 0) {
-      series.upper2.setData(bands.map(b => ({ time: b.time, value: b.upper2 })) as LineData<number>[])
-    }
-    if (series.lower1 && bands.length > 0) {
-      series.lower1.setData(bands.map(b => ({ time: b.time, value: b.lower1 })) as LineData<number>[])
-    }
-    if (series.lower2 && bands.length > 0) {
-      series.lower2.setData(bands.map(b => ({ time: b.time, value: b.lower2 })) as LineData<number>[])
-    }
+    if (isIncremental) {
+      // Incremental: update just the last candle (and +1 new candle if appended)
+      debugLog(`[EnhancedChart] ${symbol} Effect2: Incremental update (${prev.count} -> ${candles.length})`)
+      series.candlestick.update(lastCandle as CandlestickData<number>)
 
-    // Update volume
-    if (series.volume && volumeData.length > 0) {
-      series.volume.setData(volumeData as HistogramData<number>[])
-    }
+      // Update indicators incrementally too
+      if (series.vwap && vwap.length > 0) {
+        series.vwap.update(vwap[vwap.length - 1] as LineData<number>)
+      }
+      if (series.ema9 && ema9.length > 0) {
+        series.ema9.update(ema9[ema9.length - 1] as LineData<number>)
+      }
+      if (series.ema20 && ema20.length > 0) {
+        series.ema20.update(ema20[ema20.length - 1] as LineData<number>)
+      }
+      if (series.volume && volumeData.length > 0) {
+        series.volume.update(volumeData[volumeData.length - 1] as HistogramData<number>)
+      }
+      // VWAP bands: update last point
+      if (bands.length > 0) {
+        const lastBand = bands[bands.length - 1]
+        if (series.upper1) series.upper1.update({ time: lastBand.time, value: lastBand.upper1 } as LineData<number>)
+        if (series.upper2) series.upper2.update({ time: lastBand.time, value: lastBand.upper2 } as LineData<number>)
+        if (series.lower1) series.lower1.update({ time: lastBand.time, value: lastBand.lower1 } as LineData<number>)
+        if (series.lower2) series.lower2.update({ time: lastBand.time, value: lastBand.lower2 } as LineData<number>)
+      }
+    } else {
+      // Full reload: symbol change or substantial data difference
+      debugLog(`[EnhancedChart] ${symbol} Effect2: Full setData (${candles.length} candles)`)
+      series.candlestick.setData(candles as CandlestickData<number>[])
 
-    // Fit content when data arrives
-    if (candles.length > 0) {
+      if (series.vwap && vwap.length > 0) {
+        series.vwap.setData(vwap as LineData<number>[])
+      }
+      if (series.ema9 && ema9.length > 0) {
+        series.ema9.setData(ema9 as LineData<number>[])
+      }
+      if (series.ema20 && ema20.length > 0) {
+        series.ema20.setData(ema20 as LineData<number>[])
+      }
+      if (series.upper1 && bands.length > 0) {
+        series.upper1.setData(bands.map(b => ({ time: b.time, value: b.upper1 })) as LineData<number>[])
+      }
+      if (series.upper2 && bands.length > 0) {
+        series.upper2.setData(bands.map(b => ({ time: b.time, value: b.upper2 })) as LineData<number>[])
+      }
+      if (series.lower1 && bands.length > 0) {
+        series.lower1.setData(bands.map(b => ({ time: b.time, value: b.lower1 })) as LineData<number>[])
+      }
+      if (series.lower2 && bands.length > 0) {
+        series.lower2.setData(bands.map(b => ({ time: b.time, value: b.lower2 })) as LineData<number>[])
+      }
+      if (series.volume && volumeData.length > 0) {
+        series.volume.setData(volumeData as HistogramData<number>[])
+      }
       chart.timeScale().fitContent()
     }
+
+    // Track current state for next comparison
+    prevDataRef.current = { count: candles.length, lastTime, symbol }
   }, [candles, vwap, ema9, ema20, bands, volumeData])
 
   // Effect 3: Update price lines (entry zones, patterns, etc.)
