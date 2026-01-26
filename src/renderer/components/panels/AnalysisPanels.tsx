@@ -1,4 +1,3 @@
-import React from 'react'
 import { Runner } from '../../hooks/useRunners'
 import { SignalStrengthGauge } from './SignalStrengthGauge'
 import { TimeframeAlignment } from './TimeframeAlignment'

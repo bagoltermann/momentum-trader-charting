@@ -1,4 +1,3 @@
-import React from 'react'
 import { usePatternOverlayStore } from '../../store/patternOverlayStore'
 
 export function PatternOverlayControls() {

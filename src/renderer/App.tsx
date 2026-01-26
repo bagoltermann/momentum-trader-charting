@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useCallback } from 'react'
+import { useEffect, useMemo, useCallback } from 'react'
 import { Header } from './components/layout/Header'
 import { Sidebar } from './components/layout/Sidebar'
 import { MultiChartGrid } from './components/charts/MultiChartGrid'

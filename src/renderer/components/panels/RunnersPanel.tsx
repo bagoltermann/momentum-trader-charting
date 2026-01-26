@@ -1,4 +1,3 @@
-import React from 'react'
 import { useRunners, Runner } from '../../hooks/useRunners'
 import { FivePillarsPanel } from './FivePillarsPanel'
 import { TimePressureIndicator } from './TimePressureIndicator'

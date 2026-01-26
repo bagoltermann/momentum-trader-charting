@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import { useMemo } from 'react'
 import { Runner } from '../../hooks/useRunners'
 import { CandleWithVolume } from '../../store/candleDataStore'
 import { calculateVWAPBands } from '../../utils/indicators'

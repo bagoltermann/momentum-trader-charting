@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import { useMemo } from 'react'
 import { CandleWithVolume } from '../../store/candleDataStore'
 import { Candle } from '../../utils/indicators'
 

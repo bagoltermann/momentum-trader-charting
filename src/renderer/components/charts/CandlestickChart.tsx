@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { createChart, IChartApi, CandlestickData } from 'lightweight-charts'
 
 interface CandlestickChartProps {

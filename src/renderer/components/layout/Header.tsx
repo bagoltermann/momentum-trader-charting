@@ -1,4 +1,3 @@
-import React from 'react'
 import { useWatchlistStore } from '../../store/watchlistStore'
 import { useChartStore } from '../../store/chartStore'
 import { useValidationStore } from '../../store/validationStore'

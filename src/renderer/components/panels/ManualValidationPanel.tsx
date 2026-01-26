@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValidationStore, ValidationResult } from '../../store/validationStore'
 
 function getSignalClass(signal: string): string {

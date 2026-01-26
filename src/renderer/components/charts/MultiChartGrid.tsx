@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect } from 'react'
+import { useMemo, useEffect } from 'react'
 import { EnhancedChart, EntryZoneLevel, RiskRewardConfig } from './EnhancedChart'
 import { useCandleData } from '../../hooks/useCandleData'
 import { Runner } from '../../hooks/useRunners'
