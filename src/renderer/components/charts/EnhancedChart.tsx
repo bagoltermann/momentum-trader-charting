@@ -1,11 +1,10 @@
-import React, { useEffect, useRef, useMemo, useCallback } from 'react'
+import React, { useEffect, useRef, useMemo } from 'react'
 import { createChart, IChartApi, ISeriesApi, CandlestickData, LineData, HistogramData, IPriceLine } from 'lightweight-charts'
 import {
   Candle,
   calculateVWAPBands,
   calculateEMA,
   detectMicroPullback,
-  MicroPullbackPattern,
   SupportResistanceLevel,
   GapZone,
   FlagPennantPattern
@@ -361,28 +360,29 @@ export function EnhancedChart({
     if (isIncremental) {
       // Incremental: update just the last candle (and +1 new candle if appended)
       debugLog(`[EnhancedChart] ${symbol} Effect2: Incremental update (${prev.count} -> ${candles.length})`)
-      series.candlestick.update(lastCandle as CandlestickData<number>)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- lightweight-charts update() has stricter Time type than setData()
+      series.candlestick.update(lastCandle as any)
 
       // Update indicators incrementally too
       if (series.vwap && vwap.length > 0) {
-        series.vwap.update(vwap[vwap.length - 1] as LineData<number>)
+        series.vwap.update(vwap[vwap.length - 1] as any)
       }
       if (series.ema9 && ema9.length > 0) {
-        series.ema9.update(ema9[ema9.length - 1] as LineData<number>)
+        series.ema9.update(ema9[ema9.length - 1] as any)
       }
       if (series.ema20 && ema20.length > 0) {
-        series.ema20.update(ema20[ema20.length - 1] as LineData<number>)
+        series.ema20.update(ema20[ema20.length - 1] as any)
       }
       if (series.volume && volumeData.length > 0) {
-        series.volume.update(volumeData[volumeData.length - 1] as HistogramData<number>)
+        series.volume.update(volumeData[volumeData.length - 1] as any)
       }
       // VWAP bands: update last point
       if (bands.length > 0) {
         const lastBand = bands[bands.length - 1]
-        if (series.upper1) series.upper1.update({ time: lastBand.time, value: lastBand.upper1 } as LineData<number>)
-        if (series.upper2) series.upper2.update({ time: lastBand.time, value: lastBand.upper2 } as LineData<number>)
-        if (series.lower1) series.lower1.update({ time: lastBand.time, value: lastBand.lower1 } as LineData<number>)
-        if (series.lower2) series.lower2.update({ time: lastBand.time, value: lastBand.lower2 } as LineData<number>)
+        if (series.upper1) series.upper1.update({ time: lastBand.time, value: lastBand.upper1 } as any)
+        if (series.upper2) series.upper2.update({ time: lastBand.time, value: lastBand.upper2 } as any)
+        if (series.lower1) series.lower1.update({ time: lastBand.time, value: lastBand.lower1 } as any)
+        if (series.lower2) series.lower2.update({ time: lastBand.time, value: lastBand.lower2 } as any)
       }
     } else {
       // Full reload: symbol change or substantial data difference
@@ -399,16 +399,16 @@ export function EnhancedChart({
         series.ema20.setData(ema20 as LineData<number>[])
       }
       if (series.upper1 && bandUpper1.length > 0) {
-        series.upper1.setData(bandUpper1)
+        series.upper1.setData(bandUpper1 as any)
       }
       if (series.upper2 && bandUpper2.length > 0) {
-        series.upper2.setData(bandUpper2)
+        series.upper2.setData(bandUpper2 as any)
       }
       if (series.lower1 && bandLower1.length > 0) {
-        series.lower1.setData(bandLower1)
+        series.lower1.setData(bandLower1 as any)
       }
       if (series.lower2 && bandLower2.length > 0) {
-        series.lower2.setData(bandLower2)
+        series.lower2.setData(bandLower2 as any)
       }
       if (series.volume && volumeData.length > 0) {
         series.volume.setData(volumeData as HistogramData<number>[])
