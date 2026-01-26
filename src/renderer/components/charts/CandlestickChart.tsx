@@ -49,7 +49,7 @@ export function CandlestickChart({ symbol, timeframe, data, height = 400 }: Cand
     })
 
     if (data.length > 0) {
-      candlestickSeries.setData(data)
+      candlestickSeries.setData(data as any)
     }
     chartRef.current = chart
 

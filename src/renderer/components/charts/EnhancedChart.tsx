@@ -1,5 +1,5 @@
 import { useEffect, useRef, useMemo } from 'react'
-import { createChart, IChartApi, ISeriesApi, CandlestickData, LineData, HistogramData, IPriceLine } from 'lightweight-charts'
+import { createChart, IChartApi, ISeriesApi, LineData, IPriceLine } from 'lightweight-charts'
 import {
   Candle,
   calculateVWAPBands,
@@ -388,16 +388,16 @@ export function EnhancedChart({
     } else {
       // Full reload: symbol change or substantial data difference
       debugLog(`[EnhancedChart] ${symbol} Effect2: Full setData (${candles.length} candles)`)
-      series.candlestick.setData(candles as CandlestickData<number>[])
+      series.candlestick.setData(candles as any)
 
       if (series.vwap && vwap.length > 0) {
-        series.vwap.setData(vwap as LineData<number>[])
+        series.vwap.setData(vwap as any)
       }
       if (series.ema9 && ema9.length > 0) {
-        series.ema9.setData(ema9 as LineData<number>[])
+        series.ema9.setData(ema9 as any)
       }
       if (series.ema20 && ema20.length > 0) {
-        series.ema20.setData(ema20 as LineData<number>[])
+        series.ema20.setData(ema20 as any)
       }
       if (series.upper1 && bandUpper1.length > 0) {
         series.upper1.setData(bandUpper1 as any)
@@ -412,7 +412,7 @@ export function EnhancedChart({
         series.lower2.setData(bandLower2 as any)
       }
       if (series.volume && volumeData.length > 0) {
-        series.volume.setData(volumeData as HistogramData<number>[])
+        series.volume.setData(volumeData as any)
       }
       chart.timeScale().fitContent()
     }
