@@ -3,6 +3,9 @@ import axios from 'axios'
 import { CandlestickData } from 'lightweight-charts'
 import { debugLogTimestamped as log } from '../utils/debugLog'
 
+// Reusable axios client (avoids creating new instance per request)
+const apiClient = axios.create({ timeout: 15000 })
+
 export interface CandleWithVolume extends CandlestickData<number> {
   volume: number
 }
@@ -108,10 +111,7 @@ export const useCandleDataStore = create<CandleDataState>((set, get) => ({
     try {
       log(`[CandleStore] #${reqId} Making API call for ${symbol}`)
 
-      // Use a fresh axios instance to avoid connection pool issues
-      const response = await axios.create({
-        timeout: 15000,
-      }).get(`http://localhost:8081/api/candles/${symbol}`, {
+      const response = await apiClient.get(`http://localhost:8081/api/candles/${symbol}`, {
         params: { timeframe: '1m' },
         signal: controller.signal
       })
@@ -130,23 +130,15 @@ export const useCandleDataStore = create<CandleDataState>((set, get) => ({
         return
       }
 
-      const transformed: CandleWithVolume[] = response.data.map((c: { timestamp: number; open: number; high: number; low: number; close: number; volume: number }) => ({
-        time: Math.floor(c.timestamp / 1000) as number,
-        open: c.open,
-        high: c.high,
-        low: c.low,
-        close: c.close,
-        volume: c.volume || 0,
-      }))
-
-      const raw: Candle[] = response.data.map((c: { timestamp: number; open: number; high: number; low: number; close: number; volume: number }) => ({
-        time: Math.floor(c.timestamp / 1000),
-        open: c.open,
-        high: c.high,
-        low: c.low,
-        close: c.close,
-        volume: c.volume || 0,
-      }))
+      // Single-pass transform: produce both arrays in one loop
+      const transformed: CandleWithVolume[] = []
+      const raw: Candle[] = []
+      for (const c of response.data) {
+        const time = Math.floor(c.timestamp / 1000)
+        const vol = c.volume || 0
+        transformed.push({ time: time as number, open: c.open, high: c.high, low: c.low, close: c.close, volume: vol })
+        raw.push({ time, open: c.open, high: c.high, low: c.low, close: c.close, volume: vol })
+      }
 
       log(`[CandleStore] #${reqId} Setting ${transformed.length} candles to store for ${symbol}`)
       set({ primaryCandles: transformed, primaryRaw: raw, primaryLoading: false })

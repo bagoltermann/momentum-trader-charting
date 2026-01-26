@@ -95,25 +95,15 @@ export function useCandleData(symbol: string | null, timeframe: string): UseCand
 
         debugLog(`[useCandleData] Got ${response.data.length} candles for ${symbol}`)
 
-        // Transform to Lightweight Charts format with volume
-        const transformed: CandleWithVolume[] = response.data.map((c: { timestamp: number; open: number; high: number; low: number; close: number; volume: number }) => ({
-          time: Math.floor(c.timestamp / 1000) as number,
-          open: c.open,
-          high: c.high,
-          low: c.low,
-          close: c.close,
-          volume: c.volume || 0,
-        }))
-
-        // Also store raw candles for indicator calculations
-        const raw: Candle[] = response.data.map((c: { timestamp: number; open: number; high: number; low: number; close: number; volume: number }) => ({
-          time: Math.floor(c.timestamp / 1000),
-          open: c.open,
-          high: c.high,
-          low: c.low,
-          close: c.close,
-          volume: c.volume || 0,
-        }))
+        // Single-pass transform: produce both arrays in one loop
+        const transformed: CandleWithVolume[] = []
+        const raw: Candle[] = []
+        for (const c of response.data) {
+          const time = Math.floor(c.timestamp / 1000)
+          const vol = c.volume || 0
+          transformed.push({ time: time as number, open: c.open, high: c.high, low: c.low, close: c.close, volume: vol })
+          raw.push({ time, open: c.open, high: c.high, low: c.low, close: c.close, volume: vol })
+        }
 
         // Cache the result
         candleCache.set(cacheKey, { candles: transformed, rawCandles: raw, timestamp: Date.now() })
