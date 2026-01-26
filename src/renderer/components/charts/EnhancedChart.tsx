@@ -521,7 +521,7 @@ export function EnhancedChart({
     }
 
     // Add Support/Resistance levels
-    const strengthWidths = { weak: 1, moderate: 2, strong: 3 }
+    const strengthWidths = { weak: 1, moderate: 2, strong: 3 } as const
     supportResistanceLevels.forEach(level => {
       const color = level.type === 'resistance' ? '#FF5252' : '#00E676'
       series.priceLines.push(series.candlestick!.createPriceLine({
