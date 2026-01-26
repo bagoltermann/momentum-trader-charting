@@ -111,7 +111,7 @@ def _get_semaphore() -> asyncio.Semaphore:
     """Get or create the API semaphore (lazy initialization)"""
     global _api_semaphore
     if _api_semaphore is None:
-        _api_semaphore = asyncio.Semaphore(3)  # Max 3 concurrent API calls to Schwab
+        _api_semaphore = asyncio.Semaphore(5)  # Max 5 concurrent (was 3 - caused chart starvation during validation)
     return _api_semaphore
 
 
@@ -194,6 +194,11 @@ class ChartSchwabClient:
         if not self._token_path.exists():
             raise FileNotFoundError(f"Tokens not found: {self._token_path}")
 
+        # Token caching - avoid disk I/O on every API call
+        self._cached_token: Optional[str] = None
+        self._token_cache_time: float = 0
+        self._TOKEN_CACHE_TTL = 60  # seconds (tokens refresh every 30 min)
+
         print(f"[OK] Schwab client configured (aiohttp + circuit breaker) using tokens from: {self._token_path}")
 
     async def close(self):
@@ -201,10 +206,15 @@ class ChartSchwabClient:
         pass
 
     def _get_access_token(self) -> str:
-        """Read current access token from token file"""
+        """Read current access token from token file (cached for 60s)"""
+        now = time_module.time()
+        if self._cached_token and (now - self._token_cache_time < self._TOKEN_CACHE_TTL):
+            return self._cached_token
         with open(self._token_path) as f:
             token_data = json.load(f)
-        return token_data['token']['access_token']
+        self._cached_token = token_data['token']['access_token']
+        self._token_cache_time = now
+        return self._cached_token
 
     async def get_price_history(
         self,
