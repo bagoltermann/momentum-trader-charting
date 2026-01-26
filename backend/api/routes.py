@@ -5,7 +5,7 @@ from pathlib import Path
 import json
 import logging
 import asyncio
-from services.schwab_client import ChartSchwabClient
+from services.schwab_client import ChartSchwabClient, get_cached_candles
 from services.file_watcher import get_cached_watchlist, get_cached_runners
 from services.llm_validator import get_validator, ValidationResult
 from core.config import load_config
@@ -186,18 +186,22 @@ async def validate_signal(symbol: str):
         _logger.warning(f"Failed to get quote for {symbol}: {e}")
         quote = None
 
-    # Get candles for technical indicators
-    try:
-        candles = await client.get_price_history(
-            symbol,
-            frequency_type="minute",
-            frequency=1,
-            period_type="day",
-            period=1
-        )
-    except Exception as e:
-        _logger.warning(f"Failed to get candles for {symbol}: {e}")
-        candles = None
+    # Get candles for technical indicators (use cache first to avoid semaphore contention)
+    candles = get_cached_candles(symbol, "minute", 1)
+    if candles is not None:
+        _logger.info(f"Validation for {symbol}: using cached 1m candles ({len(candles)} bars)")
+    else:
+        try:
+            candles = await client.get_price_history(
+                symbol,
+                frequency_type="minute",
+                frequency=1,
+                period_type="day",
+                period=1
+            )
+        except Exception as e:
+            _logger.warning(f"Failed to get candles for {symbol}: {e}")
+            candles = None
 
     # Get validator and validate
     config = load_config()

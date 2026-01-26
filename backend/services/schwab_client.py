@@ -41,6 +41,17 @@ _candle_cache: Dict[str, tuple[float, List[Dict]]] = {}
 _CACHE_TTL_SECONDS = 60  # Cache for 60 seconds (matches frontend refresh interval)
 
 
+def get_cached_candles(symbol: str, frequency_type: str = "minute", frequency: int = 1) -> Optional[List[Dict]]:
+    """Return cached candle data if fresh, else None. Avoids redundant API calls."""
+    cache_key = f"{symbol}:{frequency_type}:{frequency}"
+    cached = _candle_cache.get(cache_key)
+    if cached:
+        cache_time, cache_data = cached
+        if time_module.time() - cache_time < _CACHE_TTL_SECONDS:
+            return cache_data
+    return None
+
+
 class CircuitBreaker:
     """
     Circuit breaker pattern for API protection (from momentum-trader)
