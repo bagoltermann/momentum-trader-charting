@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { CandlestickData } from 'lightweight-charts'
 import axios from 'axios'
 import { Candle } from '../utils/indicators'
+import { debugLog } from '../utils/debugLog'
 
 export interface CandleWithVolume extends CandlestickData<number> {
   volume: number
@@ -32,14 +33,14 @@ export function useCandleData(symbol: string | null, timeframe: string): UseCand
   const abortControllerRef = useRef<AbortController | null>(null)
   const mountedRef = useRef(true)
 
-  console.log(`[useCandleData] Hook called: symbol=${symbol}, timeframe=${timeframe}`)
+  debugLog(`[useCandleData] Hook called: symbol=${symbol}, timeframe=${timeframe}`)
 
   useEffect(() => {
     mountedRef.current = true
-    console.log(`[useCandleData] useEffect TRIGGERED: symbol=${symbol}, timeframe=${timeframe}`)
+    debugLog(`[useCandleData] useEffect TRIGGERED: symbol=${symbol}, timeframe=${timeframe}`)
 
     if (!symbol) {
-      console.log(`[useCandleData] No symbol, clearing candles`)
+      debugLog(`[useCandleData] No symbol, clearing candles`)
       setCandles([])
       setRawCandles([])
       return
@@ -47,25 +48,25 @@ export function useCandleData(symbol: string | null, timeframe: string): UseCand
 
     const fetchData = async (forceRefresh = false) => {
       const cacheKey = `${symbol}:${timeframe}`
-      console.log(`[useCandleData] fetchData called: cacheKey=${cacheKey}, forceRefresh=${forceRefresh}`)
+      debugLog(`[useCandleData] fetchData called: cacheKey=${cacheKey}, forceRefresh=${forceRefresh}`)
 
       // Check cache first (unless forcing refresh)
       if (!forceRefresh) {
         const cached = candleCache.get(cacheKey)
         if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-          console.log(`[useCandleData] Cache HIT for ${cacheKey}, ${cached.candles.length} candles`)
+          debugLog(`[useCandleData] Cache HIT for ${cacheKey}, ${cached.candles.length} candles`)
           if (mountedRef.current) {
             setCandles(cached.candles)
             setRawCandles(cached.rawCandles)
           }
           return
         }
-        console.log(`[useCandleData] Cache MISS for ${cacheKey}`)
+        debugLog(`[useCandleData] Cache MISS for ${cacheKey}`)
       }
 
       // Cancel any pending request
       if (abortControllerRef.current) {
-        console.log(`[useCandleData] Aborting previous request`)
+        debugLog(`[useCandleData] Aborting previous request`)
         abortControllerRef.current.abort()
       }
 
@@ -79,7 +80,7 @@ export function useCandleData(symbol: string | null, timeframe: string): UseCand
       }
 
       try {
-        console.log(`[useCandleData] Fetching ${symbol} with timeframe=${timeframe}`)
+        debugLog(`[useCandleData] Fetching ${symbol} with timeframe=${timeframe}`)
         const response = await axios.get(`http://localhost:8081/api/candles/${symbol}`, {
           params: { timeframe },
           signal: controller.signal,
@@ -88,11 +89,11 @@ export function useCandleData(symbol: string | null, timeframe: string): UseCand
 
         // Check if still mounted and not aborted
         if (!mountedRef.current || controller.signal.aborted) {
-          console.log(`[useCandleData] Request completed but component unmounted or aborted, ignoring`)
+          debugLog(`[useCandleData] Request completed but component unmounted or aborted, ignoring`)
           return
         }
 
-        console.log(`[useCandleData] Got ${response.data.length} candles for ${symbol}`)
+        debugLog(`[useCandleData] Got ${response.data.length} candles for ${symbol}`)
 
         // Transform to Lightweight Charts format with volume
         const transformed: CandleWithVolume[] = response.data.map((c: { timestamp: number; open: number; high: number; low: number; close: number; volume: number }) => ({
@@ -123,7 +124,7 @@ export function useCandleData(symbol: string | null, timeframe: string): UseCand
         }
       } catch (err) {
         if (axios.isCancel(err) || (err instanceof Error && err.name === 'CanceledError')) {
-          console.log(`[useCandleData] Request cancelled for ${symbol}`)
+          debugLog(`[useCandleData] Request cancelled for ${symbol}`)
           return // Request was cancelled, ignore
         }
         console.error(`[useCandleData] Failed to fetch candles for ${symbol}:`, err)
@@ -143,7 +144,7 @@ export function useCandleData(symbol: string | null, timeframe: string): UseCand
     const interval = setInterval(() => fetchData(true), 60000)
 
     return () => {
-      console.log(`[useCandleData] useEffect CLEANUP: symbol=${symbol}, timeframe=${timeframe}`)
+      debugLog(`[useCandleData] useEffect CLEANUP: symbol=${symbol}, timeframe=${timeframe}`)
       mountedRef.current = false
       if (abortControllerRef.current) {
         abortControllerRef.current.abort()

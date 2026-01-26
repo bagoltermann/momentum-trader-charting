@@ -1,12 +1,7 @@
 import { create } from 'zustand'
 import axios from 'axios'
 import { CandlestickData } from 'lightweight-charts'
-
-// Simple console logger
-function log(msg: string) {
-  const timestamp = new Date().toISOString()
-  console.log(`${timestamp} ${msg}`)
-}
+import { debugLogTimestamped as log } from '../utils/debugLog'
 
 export interface CandleWithVolume extends CandlestickData<number> {
   volume: number

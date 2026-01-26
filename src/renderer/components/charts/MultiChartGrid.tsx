@@ -5,6 +5,7 @@ import { Runner } from '../../hooks/useRunners'
 import { usePatternOverlayStore } from '../../store/patternOverlayStore'
 import { useCandleDataStore, startCandleRefresh } from '../../store/candleDataStore'
 import { detectSupportResistance, detectGaps, detectFlagPennant } from '../../utils/indicators'
+import { debugLog } from '../../utils/debugLog'
 
 interface MultiChartGridProps {
   primarySymbol: string | null
@@ -82,7 +83,7 @@ function getRiskRewardForSymbol(symbol: string | null, runners: Runner[]): RiskR
 }
 
 export function MultiChartGrid({ primarySymbol, secondarySymbols, runners }: MultiChartGridProps) {
-  console.log(`[MultiChartGrid] Rendering: primarySymbol=${primarySymbol}, secondarySymbols=[${secondarySymbols.join(',')}]`)
+  debugLog(`[MultiChartGrid] Rendering: primarySymbol=${primarySymbol}, secondarySymbols=[${secondarySymbols.join(',')}]`)
 
   // Use shared store for primary candle data
   const {
@@ -92,11 +93,11 @@ export function MultiChartGrid({ primarySymbol, secondarySymbols, runners }: Mul
     setPrimarySymbol
   } = useCandleDataStore()
 
-  console.log(`[MultiChartGrid] Store state: candles=${primaryCandles.length}, raw=${primaryRaw.length}, loading=${loading}`)
+  debugLog(`[MultiChartGrid] Store state: candles=${primaryCandles.length}, raw=${primaryRaw.length}, loading=${loading}`)
 
   // Update store when symbol changes
   useEffect(() => {
-    console.log(`[MultiChartGrid] useEffect: Setting primarySymbol to ${primarySymbol}`)
+    debugLog(`[MultiChartGrid] useEffect: Setting primarySymbol to ${primarySymbol}`)
     setPrimarySymbol(primarySymbol)
     startCandleRefresh()
   }, [primarySymbol, setPrimarySymbol])
@@ -133,7 +134,7 @@ export function MultiChartGrid({ primarySymbol, secondarySymbols, runners }: Mul
   }, [primaryRaw, showFlagPennant])
 
   // Log right before render
-  console.log(`[MultiChartGrid] About to render: primarySymbol=${primarySymbol}, candles=${primaryCandles.length}, will render EnhancedChart=${!!primarySymbol}`)
+  debugLog(`[MultiChartGrid] About to render: primarySymbol=${primarySymbol}, candles=${primaryCandles.length}, will render EnhancedChart=${!!primarySymbol}`)
 
   return (
     <div className="multi-chart-grid">
@@ -145,7 +146,6 @@ export function MultiChartGrid({ primarySymbol, secondarySymbols, runners }: Mul
                 Loading {primarySymbol}...
               </div>
             )}
-            {console.log(`[MultiChartGrid] Rendering EnhancedChart for ${primarySymbol} with ${primaryCandles.length} candles`)}
             <EnhancedChart
               key={primarySymbol}
               symbol={primarySymbol}
@@ -181,9 +181,9 @@ export function MultiChartGrid({ primarySymbol, secondarySymbols, runners }: Mul
 }
 
 function SecondaryChart({ symbol, runners }: { symbol: string; runners: Runner[] }) {
-  console.log(`[SecondaryChart] Rendering: symbol=${symbol}`)
+  debugLog(`[SecondaryChart] Rendering: symbol=${symbol}`)
   const { candles, rawCandles } = useCandleData(symbol, '5m')
-  console.log(`[SecondaryChart] Got data for ${symbol}: ${candles.length} candles`)
+  debugLog(`[SecondaryChart] Got data for ${symbol}: ${candles.length} candles`)
 
   const entryZones = useMemo(() =>
     getEntryZonesForSymbol(symbol, runners),

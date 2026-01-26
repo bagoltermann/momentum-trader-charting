@@ -11,6 +11,7 @@ import {
   FlagPennantPattern
 } from '../../utils/indicators'
 import { CandleWithVolume } from '../../hooks/useCandleData'
+import { debugLog } from '../../utils/debugLog'
 
 export interface EntryZoneLevel {
   price: number
@@ -76,7 +77,7 @@ export function EnhancedChart({
   gapZones = [],
   flagPennantPattern,
 }: EnhancedChartProps) {
-  console.log(`[EnhancedChart] RENDER: symbol=${symbol}, candles=${candles.length}, rawCandles=${rawCandles.length}`)
+  debugLog(`[EnhancedChart] RENDER: symbol=${symbol}, candles=${candles.length}, rawCandles=${rawCandles.length}`)
 
   const chartContainerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
@@ -115,16 +116,16 @@ export function EnhancedChart({
 
   // Effect 1: Create chart (only on mount or symbol change)
   useEffect(() => {
-    console.log(`[EnhancedChart] ${symbol} Effect1: Creating chart, container=${!!chartContainerRef.current}`)
+    debugLog(`[EnhancedChart] ${symbol} Effect1: Creating chart, container=${!!chartContainerRef.current}`)
 
     if (!chartContainerRef.current) {
-      console.log(`[EnhancedChart] ${symbol} Effect1: No container ref, aborting`)
+      debugLog(`[EnhancedChart] ${symbol} Effect1: No container ref, aborting`)
       return
     }
 
     // Clean up existing chart
     if (chartRef.current) {
-      console.log(`[EnhancedChart] ${symbol} Effect1: Removing existing chart`)
+      debugLog(`[EnhancedChart] ${symbol} Effect1: Removing existing chart`)
       chartRef.current.remove()
       chartRef.current = null
     }
@@ -281,7 +282,7 @@ export function EnhancedChart({
       lower2: lower2Series,
       priceLines: [],
     }
-    console.log(`[EnhancedChart] ${symbol} Effect1: Chart and series created successfully`)
+    debugLog(`[EnhancedChart] ${symbol} Effect1: Chart and series created successfully`)
 
     // Handle resize
     const handleResize = () => {
@@ -315,19 +316,19 @@ export function EnhancedChart({
     const series = seriesRef.current
     const chart = chartRef.current
 
-    console.log(`[EnhancedChart] ${symbol} Effect2: chart=${!!chart}, candlestick=${!!series.candlestick}, candles=${candles.length}`)
+    debugLog(`[EnhancedChart] ${symbol} Effect2: chart=${!!chart}, candlestick=${!!series.candlestick}, candles=${candles.length}`)
 
     if (!chart || !series.candlestick) {
-      console.log(`[EnhancedChart] ${symbol} Effect2: Skipping - chart or series not ready`)
+      debugLog(`[EnhancedChart] ${symbol} Effect2: Skipping - chart or series not ready`)
       return
     }
 
     // Update candlestick data
     if (candles.length > 0) {
-      console.log(`[EnhancedChart] ${symbol} Effect2: Setting ${candles.length} candles`)
+      debugLog(`[EnhancedChart] ${symbol} Effect2: Setting ${candles.length} candles`)
       series.candlestick.setData(candles as CandlestickData<number>[])
     } else {
-      console.log(`[EnhancedChart] ${symbol} Effect2: No candles to set`)
+      debugLog(`[EnhancedChart] ${symbol} Effect2: No candles to set`)
     }
 
     // Update VWAP
