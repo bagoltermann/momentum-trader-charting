@@ -1,7 +1,7 @@
 # ============================================================================
 # LLM Signal Validation Prompts Configuration
 # ============================================================================
-# Version: 1.2.0
+# Version: 1.4.0
 # Last Updated: 2026-01-23
 #
 # This file contains LLM prompts for real-time signal validation.
@@ -127,6 +127,14 @@ user_prompt_template: |
 
   {health_warning}
 
+  ## REAL-TIME CATALYST BOOST
+
+  {catalyst_boost_section}
+
+  ## FIRST PULLBACK PATTERN (v1.44.0)
+
+  {first_pullback_section}
+
   ## PATTERN DETECTION
 
   - **Micro-Pullback:** {micro_pullback_detected}
@@ -160,7 +168,9 @@ user_prompt_template: |
   - If health_status is "COOLING" → signal "wait" UNLESS both: VWAP zone is GREEN AND price stable/rising
   - If is_chasing is "Yes" → signal MUST be "wait" (never chase extended prices)
   - If price is DOWN more than 5% from day high → strong bias toward "wait" or "no_trade"
-  - Only signal "buy" for HOT or fresh setups with favorable VWAP zone and volume
+  - If REAL-TIME CATALYST BOOST shows "BREAKING NEWS DETECTED" → increase confidence by 10-15 points (fresh catalyst supports entry)
+  - If FIRST PULLBACK PATTERN shows "FIRST PULLBACK PATTERN DETECTED" → this OVERRIDES the normal "below VWAP" caution. Entry on oversold bounce is valid.
+  - Only signal "buy" for HOT or fresh setups with favorable VWAP zone and volume, OR valid First Pullback patterns
 
   Respond with ONLY valid JSON (no markdown, no explanation):
   {

@@ -450,7 +450,10 @@ class LLMValidator:
             'is_runner': is_runner,
             'runner_section': self._build_runner_section(runner) if is_runner else 'Not a multi-day runner',
 
-            # Patterns (simplified)
+            # Patterns - First Pullback detection (v1.44.0 trader app pattern)
+            **self._build_first_pullback_context(
+                price, vwap_data, volume_ratio, stock, candles, minutes_since_open
+            ),
             'micro_pullback_detected': 'Unknown',
             'flag_pattern_detected': 'Unknown',
             'unfilled_gaps': 'Unknown',
@@ -463,6 +466,9 @@ class LLMValidator:
             'gap_fade_percent': gap_fade,
             'in_entry_zone': 'Yes' if in_entry_zone else 'No',
             'is_chasing': 'Yes' if is_chasing else 'No',
+
+            # Real-time Catalyst Boost (v1.43.2 trader app data)
+            **self._build_realtime_regrade_context(stock),
 
             # Exit signals (derived from health metrics)
             'exit_macd': 'CAUTION' if price_change_from_high < -5 else 'OK',
@@ -491,6 +497,171 @@ class LLMValidator:
             return 'CAUTION'
         else:
             return 'HOLD'
+
+    def _build_realtime_regrade_context(self, stock: Dict) -> Dict[str, Any]:
+        """
+        Build context for real-time catalyst re-grading (v1.43.2 trader app feature).
+
+        When the trader app detects CRITICAL/HIGH priority streaming headlines,
+        it re-runs LLM analysis and stores the result in `realtime_regrade`.
+        This gives us fresh catalyst data to factor into validation.
+        """
+        regrade = stock.get('realtime_regrade') or {}
+
+        if not regrade:
+            return {
+                'catalyst_boosted': False,
+                'catalyst_boost_section': 'No recent catalyst boost detected.',
+            }
+
+        # Parse timestamp to check freshness
+        timestamp_str = regrade.get('timestamp', '')
+        minutes_ago = 999  # Default to old if we can't parse
+        if timestamp_str:
+            try:
+                regrade_time = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                # Handle timezone-naive comparison
+                if regrade_time.tzinfo:
+                    regrade_time = regrade_time.replace(tzinfo=None)
+                minutes_ago = (datetime.now() - regrade_time).total_seconds() / 60
+            except (ValueError, TypeError):
+                pass
+
+        # Only consider "fresh" if within last 30 minutes
+        is_fresh = minutes_ago <= 30
+
+        previous_score = regrade.get('previous_score', 0)
+        new_score = regrade.get('new_score', 0)
+        score_change = new_score - previous_score
+        headline = regrade.get('headline', 'Unknown headline')
+        priority = regrade.get('priority', 'UNKNOWN')
+
+        # Build descriptive section for prompt
+        if is_fresh and score_change > 0:
+            boost_section = f"""BREAKING NEWS DETECTED ({int(minutes_ago)} minutes ago)
+- Headline: {headline}
+- Priority: {priority}
+- Catalyst score UPGRADED: {previous_score} -> {new_score} (+{score_change})
+
+This is FRESH breaking news - weight catalyst heavily in analysis. Recent positive news flow supports bullish bias."""
+        elif is_fresh:
+            boost_section = f"""Recent news detected ({int(minutes_ago)} minutes ago)
+- Headline: {headline}
+- Priority: {priority}
+- Catalyst score: {new_score} (no change from {previous_score})
+
+News was analyzed but did not upgrade catalyst. Consider current score valid."""
+        else:
+            boost_section = 'No recent catalyst boost detected.'
+
+        return {
+            'catalyst_boosted': is_fresh and score_change > 0,
+            'catalyst_boost_fresh': is_fresh,
+            'catalyst_boost_headline': headline if is_fresh else '',
+            'catalyst_boost_minutes_ago': int(minutes_ago) if is_fresh else 0,
+            'catalyst_boost_previous_score': previous_score,
+            'catalyst_boost_new_score': new_score,
+            'catalyst_boost_score_change': score_change,
+            'catalyst_boost_priority': priority if is_fresh else '',
+            'catalyst_boost_section': boost_section,
+        }
+
+    def _build_first_pullback_context(
+        self,
+        price: float,
+        vwap_data: Dict,
+        volume_ratio: float,
+        stock: Dict,
+        candles: Optional[List[Dict]],
+        minutes_since_open: int
+    ) -> Dict[str, Any]:
+        """
+        Build context for First Pullback pattern detection (v1.44.0 trader app pattern).
+
+        Ross Cameron's "Morning Panic into Support" pattern:
+        1. Gapper with catalyst sells off sharply (weak hands panic)
+        2. Price drops below EMA/VWAP (oversold washout)
+        3. Shows recovery signal (green candles = buyers stepping in)
+        4. Entry on the bounce, not the chase
+
+        This pattern allows entry when price is BELOW EMA - the opposite of normal entries.
+        """
+        # Default: no First Pullback detected
+        default_result = {
+            'first_pullback_detected': False,
+            'first_pullback_section': 'No First Pullback pattern detected.',
+        }
+
+        # Check 1: Time window (9:30-11:30 AM = first 120 minutes)
+        if minutes_since_open > 120:
+            return default_result
+
+        # Check 2: Price below VWAP (oversold condition)
+        vwap = vwap_data.get('vwap', 0) if vwap_data else 0
+        if vwap <= 0 or price >= vwap:
+            return default_result
+
+        vwap_distance_pct = ((price - vwap) / vwap) * 100 if vwap > 0 else 0
+
+        # Must be below VWAP but not too far (max -15%)
+        if vwap_distance_pct < -15:
+            return default_result
+
+        # Check 3: Volume still elevated (50x+ for First Pullback plays)
+        if volume_ratio < 50:
+            return default_result
+
+        # Check 4: Has catalyst
+        llm_analysis = stock.get('llm_analysis') or {}
+        news_count = len(stock.get('news', [])) if isinstance(stock.get('news'), list) else 0
+        catalyst_strength = llm_analysis.get('catalyst_strength', 0)
+        has_catalyst = news_count > 0 or catalyst_strength >= 7 or stock.get('has_definitive_catalyst', False)
+
+        if not has_catalyst:
+            return default_result
+
+        # Check 5: Recovery signal - consecutive green candles
+        green_candles = self._count_consecutive_green_candles(candles)
+        if green_candles < 2:
+            return default_result
+
+        # SUCCESS - First Pullback pattern detected
+        section = f"""FIRST PULLBACK PATTERN DETECTED (Morning Panic into Support)
+- Price {abs(vwap_distance_pct):.1f}% below VWAP (oversold washout)
+- Volume: {volume_ratio:.0f}x (institutional interest confirmed)
+- Recovery signal: {green_candles} consecutive green candles
+- Catalyst: {"Yes - fresh news" if news_count > 0 else "Strong catalyst score"}
+- Time: {minutes_since_open} minutes since open (within optimal window)
+
+This is Ross Cameron's FIRST PULLBACK setup - entry on the bounce, NOT the chase.
+Consider BUY if other conditions support entry."""
+
+        return {
+            'first_pullback_detected': True,
+            'first_pullback_vwap_distance': vwap_distance_pct,
+            'first_pullback_volume': volume_ratio,
+            'first_pullback_green_candles': green_candles,
+            'first_pullback_section': section,
+        }
+
+    def _count_consecutive_green_candles(self, candles: Optional[List[Dict]]) -> int:
+        """Count consecutive green candles from the most recent candle."""
+        if not candles or len(candles) < 2:
+            return 0
+
+        # Get last 10 candles (most recent)
+        recent = candles[-10:] if len(candles) >= 10 else candles
+
+        consecutive = 0
+        for candle in reversed(recent):
+            open_price = candle.get('open', 0)
+            close_price = candle.get('close', 0)
+            if close_price > open_price:  # Green candle
+                consecutive += 1
+            else:
+                break  # Stop at first non-green
+
+        return consecutive
 
     def _calculate_5_pillars(self, stock: Dict) -> Dict[str, Any]:
         """Calculate 5 Pillars score for Warrior Trading"""

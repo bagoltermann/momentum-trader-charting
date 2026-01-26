@@ -8,6 +8,13 @@ Provides:
 """
 import sys
 import asyncio
+import platform
+
+# Fix for Windows asyncio ProactorEventLoop crash (AssertionError: _sockets is not None)
+# SelectorEventLoop is more stable for long-running HTTP servers on Windows
+# See: https://github.com/python/cpython/issues/78014
+if platform.system() == 'Windows':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -35,7 +42,10 @@ app.include_router(router, prefix="/api")
 async def startup_event():
     """Initialize file watchers and connections"""
     config = load_config()
-    start_file_watchers(config['data_sources']['momentum_trader']['data_dir'])
+    data_dir = config['data_sources']['momentum_trader']['data_dir']
+    trader_api_url = config['data_sources']['momentum_trader'].get('api_url', 'http://localhost:8080')
+
+    start_file_watchers(data_dir, trader_api_url)
     print("[OK] Charting backend started on port 8081")
 
 
@@ -79,6 +89,7 @@ if __name__ == "__main__":
         log_level="info",
         timeout_keep_alive=5,  # Short keep-alive to release connections quickly
         limit_concurrency=20,  # Lower limit to prevent connection buildup
-        limit_max_requests=500,  # Restart after this many requests
         access_log=False,  # Reduce logging overhead
+        # Note: limit_max_requests removed - causes race condition on Windows with ProactorEventLoop
+        # Note: Using WindowsSelectorEventLoopPolicy set at module level for stability
     )

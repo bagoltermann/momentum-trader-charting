@@ -1761,7 +1761,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 12px;
+  padding: 6px 10px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
 }
@@ -1827,8 +1827,8 @@ body {
 .top3-candidate-row {
   display: flex;
   align-items: center;
-  padding: 8px 12px;
-  gap: 8px;
+  padding: 5px 10px;
+  gap: 6px;
   border-bottom: 1px solid var(--border-color);
   cursor: pointer;
   transition: background 0.15s;
@@ -1843,13 +1843,13 @@ body {
 }
 
 .candidate-rank {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
   background: var(--bg-primary);
   color: var(--text-secondary);
@@ -1878,20 +1878,20 @@ body {
 .candidate-header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 2px;
+  gap: 5px;
+  margin-bottom: 1px;
 }
 
 .candidate-symbol {
   font-weight: 700;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-primary);
 }
 
 .candidate-details {
   display: flex;
-  gap: 8px;
-  font-size: 10px;
+  gap: 6px;
+  font-size: 9px;
   color: var(--text-secondary);
 }
 
@@ -1907,24 +1907,24 @@ body {
 .candidate-validation {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  min-width: 80px;
+  gap: 2px;
+  min-width: 70px;
 }
 
 .candidate-prices {
   display: flex;
-  gap: 6px;
-  font-size: 9px;
+  gap: 4px;
+  font-size: 8px;
   color: var(--text-secondary);
 }
 
 .candidate-view-btn {
-  padding: 4px 8px;
-  font-size: 10px;
+  padding: 3px 6px;
+  font-size: 9px;
   font-weight: 600;
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
-  border-radius: 4px;
+  border-radius: 3px;
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.15s;
@@ -1967,9 +1967,9 @@ body {
 /* Confidence Meter */
 .confidence-meter {
   position: relative;
-  height: 8px;
+  height: 6px;
   background: var(--bg-primary);
-  border-radius: 4px;
+  border-radius: 3px;
   overflow: hidden;
 }
 
@@ -1979,7 +1979,7 @@ body {
 
 .confidence-bar {
   height: 100%;
-  border-radius: 4px;
+  border-radius: 3px;
   transition: width 0.3s ease;
 }
 
@@ -1997,10 +1997,10 @@ body {
 
 .confidence-value {
   position: absolute;
-  right: 4px;
+  right: 3px;
   top: 50%;
   transform: translateY(-50%);
-  font-size: 8px;
+  font-size: 7px;
   font-weight: 700;
   color: var(--text-primary);
   text-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
@@ -2008,6 +2008,181 @@ body {
 
 .confidence-meter.large .confidence-value {
   font-size: 10px;
+}
+
+/* Runner Badge */
+.runner-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  margin-left: 3px;
+  font-size: 8px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #FF6B35, #FF9500);
+  color: #fff;
+  border-radius: 2px;
+}
+
+/* Candidate Tooltip */
+.candidate-tooltip {
+  position: fixed;
+  z-index: 1000;
+  min-width: 240px;
+  max-width: 320px;
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+  /* Anchor at bottom, grow upward */
+  transform: translateY(-100%);
+}
+
+.tooltip-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.tooltip-symbol {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.tooltip-play-type {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.tooltip-play-type.runner {
+  background: rgba(255, 107, 53, 0.2);
+  color: #FF9500;
+}
+
+.tooltip-play-type.fresh {
+  background: rgba(0, 200, 83, 0.2);
+  color: var(--accent-green);
+}
+
+.tooltip-section {
+  margin-bottom: 8px;
+}
+
+.tooltip-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+  font-size: 11px;
+}
+
+.tooltip-label {
+  color: var(--text-secondary);
+}
+
+.tooltip-value {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.tooltip-signal {
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.tooltip-signal.signal-buy {
+  background: rgba(0, 200, 83, 0.2);
+  color: var(--accent-green);
+}
+
+.tooltip-signal.signal-wait {
+  background: rgba(255, 214, 0, 0.2);
+  color: var(--accent-yellow);
+}
+
+.tooltip-signal.signal-no-trade {
+  background: rgba(255, 23, 68, 0.2);
+  color: var(--accent-red);
+}
+
+.tooltip-divider {
+  height: 1px;
+  background: var(--border-color);
+  margin: 8px 0;
+}
+
+.tooltip-concern {
+  font-size: 11px;
+}
+
+.concern-label {
+  color: var(--accent-yellow);
+  font-weight: 600;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.concern-text {
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.tooltip-reasoning {
+  font-size: 10px;
+}
+
+.reasoning-label {
+  color: var(--text-secondary);
+  font-weight: 600;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.reasoning-list {
+  margin: 0;
+  padding-left: 16px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.reasoning-list li {
+  margin-bottom: 2px;
+}
+
+.tooltip-pending {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-style: italic;
+  text-align: center;
+  padding: 8px 0;
+}
+
+.tooltip-error {
+  font-size: 10px;
+  padding: 6px 0;
+}
+
+.error-label {
+  color: var(--accent-yellow);
+  font-weight: 600;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.error-text {
+  color: var(--text-secondary);
+  line-height: 1.4;
+  display: block;
 }
 
 /* Manual Validation Panel */

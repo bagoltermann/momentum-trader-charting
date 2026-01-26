@@ -1,8 +1,15 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useValidationStore, ValidationResult, RankedCandidate } from '../../store/validationStore'
 
 interface Top3ValidationPanelProps {
   onSelectSymbol: (symbol: string) => void
+}
+
+interface TooltipProps {
+  candidate: RankedCandidate
+  validation: ValidationResult | undefined
+  visible: boolean
+  position: { x: number; y: number }
 }
 
 function getSignalClass(signal: string): string {
@@ -46,6 +53,115 @@ function ConfidenceMeter({ confidence }: { confidence: number }) {
   )
 }
 
+function CandidateTooltip({ candidate, validation, visible, position }: TooltipProps) {
+  if (!visible) return null
+
+  const playType = candidate.isRunner ? 'RUNNER (Day 2+)' : 'FRESH GAP'
+  const qualityLabel = candidate.isRunner ? 'Runner Quality' : 'Setup Quality'
+
+  return (
+    <div
+      className="candidate-tooltip"
+      style={{
+        left: position.x,
+        top: position.y,
+      }}
+    >
+      <div className="tooltip-header">
+        <span className="tooltip-symbol">{candidate.symbol}</span>
+        <span className={`tooltip-play-type ${candidate.isRunner ? 'runner' : 'fresh'}`}>
+          {playType}
+        </span>
+      </div>
+
+      <div className="tooltip-section">
+        <div className="tooltip-row">
+          <span className="tooltip-label">5 Pillars:</span>
+          <span className="tooltip-value">{candidate.pillarsScore.toFixed(1)} / 5</span>
+        </div>
+        <div className="tooltip-row">
+          <span className="tooltip-label">{qualityLabel}:</span>
+          <span className="tooltip-value">{candidate.qualityScore.toFixed(0)}</span>
+        </div>
+        <div className="tooltip-row">
+          <span className="tooltip-label">Volume:</span>
+          <span className="tooltip-value">{candidate.volumeRatio.toFixed(1)}x</span>
+        </div>
+        <div className="tooltip-row">
+          <span className="tooltip-label">Gap:</span>
+          <span className="tooltip-value">+{candidate.gapPercent.toFixed(0)}%</span>
+        </div>
+      </div>
+
+      {validation && validation.confidence > 0 && (
+        <>
+          <div className="tooltip-divider" />
+          <div className="tooltip-section">
+            <div className="tooltip-row">
+              <span className="tooltip-label">LLM Signal:</span>
+              <span className={`tooltip-signal ${getSignalClass(validation.signal)}`}>
+                {getSignalLabel(validation.signal)}
+              </span>
+            </div>
+            <div className="tooltip-row">
+              <span className="tooltip-label">Confidence:</span>
+              <span className="tooltip-value">{validation.confidence}%</span>
+            </div>
+            {validation.risk_reward_ratio && (
+              <div className="tooltip-row">
+                <span className="tooltip-label">Risk/Reward:</span>
+                <span className="tooltip-value">{validation.risk_reward_ratio.toFixed(1)}:1</span>
+              </div>
+            )}
+          </div>
+
+          {validation.key_concern && (
+            <>
+              <div className="tooltip-divider" />
+              <div className="tooltip-concern">
+                <span className="concern-label">⚠ Key Concern:</span>
+                <span className="concern-text">{validation.key_concern}</span>
+              </div>
+            </>
+          )}
+
+          {validation.reasoning && validation.reasoning.length > 0 && (
+            <>
+              <div className="tooltip-divider" />
+              <div className="tooltip-reasoning">
+                <span className="reasoning-label">Analysis:</span>
+                <ul className="reasoning-list">
+                  {validation.reasoning.slice(0, 3).map((reason, i) => (
+                    <li key={i}>{reason}</li>
+                  ))}
+                </ul>
+              </div>
+            </>
+          )}
+        </>
+      )}
+
+      {validation && validation.confidence === 0 && (
+        <>
+          <div className="tooltip-divider" />
+          <div className="tooltip-pending">
+            LLM validation pending, will retry...
+          </div>
+        </>
+      )}
+
+      {!validation && (
+        <>
+          <div className="tooltip-divider" />
+          <div className="tooltip-pending">
+            Awaiting LLM validation...
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 interface CandidateRowProps {
   rank: number
   candidate: RankedCandidate
@@ -55,14 +171,38 @@ interface CandidateRowProps {
 
 function CandidateRow({ rank, candidate, validation, onSelect }: CandidateRowProps) {
   const hasValidation = !!validation
+  const [showTooltip, setShowTooltip] = useState(false)
+  const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 })
+
+  const handleMouseEnter = (e: React.MouseEvent) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    // Position tooltip to the right of the row, anchored at bottom (grows upward)
+    setTooltipPos({
+      x: rect.right + 10,
+      y: rect.bottom
+    })
+    setShowTooltip(true)
+  }
+
+  const handleMouseLeave = () => {
+    setShowTooltip(false)
+  }
 
   return (
-    <div className="top3-candidate-row" onClick={onSelect}>
+    <div
+      className="top3-candidate-row"
+      onClick={onSelect}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+    >
       <div className="candidate-rank">{rank}</div>
 
       <div className="candidate-main">
         <div className="candidate-header">
-          <span className="candidate-symbol">{candidate.symbol}</span>
+          <span className="candidate-symbol">
+            {candidate.symbol}
+            {candidate.isRunner && <span className="runner-badge">R</span>}
+          </span>
           {hasValidation ? (
             <span className={`validation-signal-badge ${getSignalClass(validation.signal)}`}>
               {getSignalLabel(validation.signal)}
@@ -97,6 +237,13 @@ function CandidateRow({ rank, candidate, validation, onSelect }: CandidateRowPro
       <button className="candidate-view-btn" onClick={(e) => { e.stopPropagation(); onSelect(); }}>
         View
       </button>
+
+      <CandidateTooltip
+        candidate={candidate}
+        validation={validation}
+        visible={showTooltip}
+        position={tooltipPos}
+      />
     </div>
   )
 }
