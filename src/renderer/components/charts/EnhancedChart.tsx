@@ -107,6 +107,22 @@ export function EnhancedChart({
     return detectMicroPullback(rawCandles)
   }, [rawCandles, detectPatterns])
 
+  // Pre-compute VWAP band arrays in a single pass (avoids 4 separate .map() calls)
+  const { bandUpper1, bandUpper2, bandLower1, bandLower2 } = useMemo(() => {
+    if (bands.length === 0) return { bandUpper1: [], bandUpper2: [], bandLower1: [], bandLower2: [] }
+    const u1: LineData<number>[] = []
+    const u2: LineData<number>[] = []
+    const l1: LineData<number>[] = []
+    const l2: LineData<number>[] = []
+    for (const b of bands) {
+      u1.push({ time: b.time, value: b.upper1 } as LineData<number>)
+      u2.push({ time: b.time, value: b.upper2 } as LineData<number>)
+      l1.push({ time: b.time, value: b.lower1 } as LineData<number>)
+      l2.push({ time: b.time, value: b.lower2 } as LineData<number>)
+    }
+    return { bandUpper1: u1, bandUpper2: u2, bandLower1: l1, bandLower2: l2 }
+  }, [bands])
+
   // Prepare volume data with colors
   const volumeData = useMemo(() => {
     return candles.map((c) => ({
@@ -382,17 +398,17 @@ export function EnhancedChart({
       if (series.ema20 && ema20.length > 0) {
         series.ema20.setData(ema20 as LineData<number>[])
       }
-      if (series.upper1 && bands.length > 0) {
-        series.upper1.setData(bands.map(b => ({ time: b.time, value: b.upper1 })) as LineData<number>[])
+      if (series.upper1 && bandUpper1.length > 0) {
+        series.upper1.setData(bandUpper1)
       }
-      if (series.upper2 && bands.length > 0) {
-        series.upper2.setData(bands.map(b => ({ time: b.time, value: b.upper2 })) as LineData<number>[])
+      if (series.upper2 && bandUpper2.length > 0) {
+        series.upper2.setData(bandUpper2)
       }
-      if (series.lower1 && bands.length > 0) {
-        series.lower1.setData(bands.map(b => ({ time: b.time, value: b.lower1 })) as LineData<number>[])
+      if (series.lower1 && bandLower1.length > 0) {
+        series.lower1.setData(bandLower1)
       }
-      if (series.lower2 && bands.length > 0) {
-        series.lower2.setData(bands.map(b => ({ time: b.time, value: b.lower2 })) as LineData<number>[])
+      if (series.lower2 && bandLower2.length > 0) {
+        series.lower2.setData(bandLower2)
       }
       if (series.volume && volumeData.length > 0) {
         series.volume.setData(volumeData as HistogramData<number>[])
@@ -402,7 +418,7 @@ export function EnhancedChart({
 
     // Track current state for next comparison
     prevDataRef.current = { count: candles.length, lastTime, symbol }
-  }, [candles, vwap, ema9, ema20, bands, volumeData])
+  }, [candles, vwap, ema9, ema20, bands, bandUpper1, bandUpper2, bandLower1, bandLower2, volumeData])
 
   // Effect 3: Update price lines (entry zones, patterns, etc.)
   useEffect(() => {
