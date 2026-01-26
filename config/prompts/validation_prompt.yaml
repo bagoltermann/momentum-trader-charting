@@ -173,7 +173,7 @@ user_prompt_template: |
   - Only signal "buy" for HOT or fresh setups with favorable VWAP zone and volume, OR valid First Pullback patterns
 
   Respond with ONLY valid JSON (no markdown, no explanation):
-  {
+  {{
     "signal": "buy" or "wait" or "no_trade",
     "entry_price": number based on Entry Zone above or null,
     "stop_price": number based on Stop Zone above or null,
@@ -182,7 +182,7 @@ user_prompt_template: |
     "reasoning": ["reason 1", "reason 2", "reason 3"],
     "risk_reward_ratio": calculated ratio or null,
     "key_concern": "primary risk factor" or null
-  }
+  }}
 
 # Fallback values when LLM is unavailable
 fallback:
