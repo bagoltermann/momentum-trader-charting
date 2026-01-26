@@ -7,6 +7,7 @@ This index tracks all development sessions for the Momentum Trader Charting comp
 
 | Date | Topics | Key Changes | Status |
 |------|--------|-------------|--------|
+| 2026-01-26 | Performance Tuning (8 fixes) | Template bug fix, semaphore starvation, cached candles, watchlist TTL, debugLog utility, single-pass transforms, incremental chart updates, VWAP band optimization | ✅ Complete |
 | 2026-01-23 | LLM Validation Enhancements + Watchlist Sync | Health-aware validation, NoneType fixes, watchlist API sync, real-time catalyst boost (v1.43.2), First Pullback pattern (v1.44.0) | ✅ Complete |
 | 2026-01-22 | LLM Validation Feature | Added Ollama-powered validation with Top3 panel, manual validate button, auto-start Ollama in launcher | ✅ Complete |
 | 2026-01-20 | Chart switching fix (async httpx) | Fixed blank charts by converting sync httpx to async, shared candle store | ✅ Complete |
@@ -26,4 +27,4 @@ This index tracks all development sessions for the Momentum Trader Charting comp
 
 ---
 
-**Last Updated**: 2026-01-23
+**Last Updated**: 2026-01-26
