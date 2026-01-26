@@ -112,7 +112,6 @@ function analyzeDailyTimeframe(candles: Candle[]): TimeframeSignal {
   }
 
   // For intraday, use current session data to determine daily bias
-  const firstCandle = candles[0]
   const lastCandle = candles[candles.length - 1]
   const sessionHigh = Math.max(...candles.map(c => c.high))
   const sessionLow = Math.min(...candles.map(c => c.low))
@@ -209,8 +208,8 @@ function getDirectionClass(direction: TimeframeSignal['direction']): string {
 export function TimeframeAlignment({
   selectedSymbol,
   candles: candles1m,
-  loading,
-  error
+  loading: _loading,
+  error: _error
 }: TimeframeAlignmentProps) {
 
   // Calculate VWAP from candle data

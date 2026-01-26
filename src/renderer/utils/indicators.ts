@@ -561,14 +561,12 @@ export function detectMicroPullback(
   const priorCandles = candles.slice(-(lookbackBars + 5), -lookbackBars)
   if (priorCandles.length > 0) {
     const priorLow = Math.min(...priorCandles.map(c => c.low))
-    const priorHigh = Math.max(...priorCandles.map(c => c.high))
 
     // Consolidation should be at upper part of prior range (pullback from high)
     if (minLow < priorLow) return null // Price broke down, not consolidating
   }
 
   // Check volume pattern - ideally declining
-  let volumeDecreasing = true
   const volumes = recentCandles.map(c => c.volume)
   const avgVolume = volumes.reduce((a, b) => a + b, 0) / volumes.length
   const lastVolume = volumes[volumes.length - 1]

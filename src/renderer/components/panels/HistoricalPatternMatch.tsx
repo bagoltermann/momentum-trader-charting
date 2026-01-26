@@ -275,7 +275,6 @@ export function HistoricalPatternMatch({
 }: HistoricalPatternMatchProps) {
   const [tradeHistory, setTradeHistory] = useState<CompletedTrade[]>([])
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   // Load trade history on mount
   useEffect(() => {

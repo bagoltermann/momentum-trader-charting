@@ -282,7 +282,7 @@ export function ExitSignalDashboard({
   stopPrice,
   candles,
   loading,
-  error
+  error: _error
 }: ExitSignalDashboardProps) {
 
   const analysis = useMemo(() => {
