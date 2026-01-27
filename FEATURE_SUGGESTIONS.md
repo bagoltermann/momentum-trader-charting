@@ -33,12 +33,42 @@ This document tracks feature enhancements - both implemented and planned.
 - [Trade Entry Panel](#trade-entry-panel---phase-4) - Quick trade execution
 - [Replay Mode](#replay-mode---phase-4) - Review past trading sessions
 
+### Planned Features - Phase 5 (LLM Pattern Detection)
+- [Sector Momentum Correlation](#idea-2-multi-stock-sector-momentum-correlation---phase-5) - Sector ETF tailwind/headwind context
+- [Headline Sentiment Trajectory](#idea-3-news-headline-sentiment-trajectory---phase-5) - Narrative building vs. fading
+- [Historical Analog Matching](#idea-4-historical-analog-matching---phase-5) - Trade history similarity search
+- [Float/Catalyst/Time Interactions](#idea-5-floatcatalysttime-interaction-analysis---phase-5) - 3-way interaction filter rules
+
 ### Infrastructure
 - [Smart Launcher Scripts](#smart-launcher-scripts) - Auto-detection startup
 
 ---
 
 ## Recently Implemented ✅
+
+### Catalyst-Response Mismatch Detection (v1.5.0) - Jan 2026
+**Status**: ✅ Complete
+**Source**: Session 2026-01-26 - LLM Pattern Detection Analysis
+
+**Problem Solved**:
+- LLM had no awareness of whether price action was proportional to catalyst quality
+- FOMO-driven over-reactions (mediocre catalyst + huge gap) were not flagged
+- Under-reactions (strong catalyst + modest gap) were not highlighted as opportunities
+
+**Features**:
+1. **Catalyst-Response Analysis Section** - New prompt section evaluating catalyst-to-response ratio
+2. **FOMO Over-Reaction Rule** - Critical rule: catalyst_strength <=4 AND gap >20% biases toward "wait"
+3. **Mismatch Pattern Guide** - LLM evaluates over-reaction, under-reaction, proportional, and float amplification patterns
+
+**Technical Details**:
+- Prompt-only change to `config/prompts/validation_prompt.yaml` (v1.5.0)
+- All required variables (`catalyst_strength`, `gap_percent`, `volume_ratio`, `float_formatted`) already existed in context
+- No backend code changes needed
+
+**Files**:
+- `config/prompts/validation_prompt.yaml` - Added CATALYST-RESPONSE ANALYSIS section + FOMO critical rule
+
+---
 
 ### LLM Validation Health-Aware + NoneType Fix (v1.4.2) - Jan 2026
 **Status**: ✅ Complete
@@ -595,5 +625,120 @@ Share chart screenshots to chat channels.
 
 ---
 
-**Last Updated**: 2026-01-23
+## LLM Pattern Detection - Phase 5
+
+> **Source**: `momentum-trader/docs/HIGH_VALUE_LLM_PATTERN_DETECTION.md`
+> **Goal**: Push win rate above 65% by giving the LLM context that humans can't synthesize in real-time.
+> **Principle**: Use LLMs as **filters** (reduce bad trades) rather than **predictors** (pick good trades).
+> **Note**: Idea #1 (Catalyst-Response Mismatch) was implemented in v1.5.0. Ideas #2-#5 below require additional data infrastructure.
+
+### Idea #2: Multi-Stock Sector Momentum Correlation - Phase 5
+**Status**: BLOCKED (waiting on trader app API endpoint)
+**Priority**: MEDIUM-HIGH
+
+**Description**:
+Tells the LLM whether the stock has sector tailwind (related stocks also strong) or headwind. A biotech gapping up when XLV is down 2% is a very different setup than when XLV is up 1%.
+
+**Current State**:
+The `MarketContextAnalyzer` in the trader app (`momentum-trader/src/analysis/market_context_analyzer.py`) already tracks:
+- 11 sector ETFs: XLK, XLF, XLV, XLE, XLI, XLC, XLY, XLP, XLU, XLRE, XLB
+- VIX level and trend
+- Market heat index
+- Strong/weak sector identification
+
+This data is **NOT** currently exposed via any API endpoint. The charting app has no access to it.
+
+**Implementation Path**:
+1. **Trader app**: Add `/api/market-context` endpoint to `momentum-trader/src/web/api.py` returning sector ETF performance, market heat, strong/weak sectors, and VIX
+2. **Charting app backend**: Fetch market context from trader app (same pattern as existing watchlist fetch at `localhost:8080/api/watchlist`)
+3. **Charting app prompt**: Add `## SECTOR CONTEXT` section to `validation_prompt.yaml` with sector ETF data, market heat, and whether the stock's sector has tailwind/headwind
+4. No LLM code changes needed - just more context in the prompt
+
+**Value**: The LLM currently has zero awareness of broader market conditions. Sector tailwind/headwind is one of the strongest filters for whether a gap trade will hold or fade.
+
+---
+
+### Idea #3: News Headline Sentiment Trajectory - Phase 5
+**Status**: BLOCKED (waiting on trader app headline aggregation)
+**Priority**: MEDIUM
+
+**Description**:
+Scores whether the narrative around a stock is building (escalating coverage, bigger outlets picking it up) or fading (weaker follow-ups, corrections appearing). A stock with 1 headline at 7 AM is different from one with 5 increasingly bullish headlines over 24 hours.
+
+**Current State**:
+The trader app has:
+- `NewsAggregator` (`momentum-trader/src/data/news_aggregator.py`) pulling from FMP, Yahoo RSS, SEC 8-K filings, and Schwab streaming
+- `CatalystClassifier` (`momentum-trader/src/streaming/catalyst_classifier.py`) categorizing headlines into CRITICAL/HIGH/MEDIUM/LOW/NEGATIVE tiers
+
+However, this data is per-headline, not aggregated into a trajectory per symbol over time.
+
+**Implementation Path**:
+1. **Trader app**: Build a headline trajectory aggregator that collects all headlines for a symbol over 48 hours and scores the trajectory (building/stable/fading)
+2. **Trader app**: Expose trajectory data via API (extend `/api/watchlist` response or add `/api/headline-trajectory/{symbol}`)
+3. **Charting app**: Fetch trajectory data and include in LLM context
+4. **Charting app prompt**: Add `## NARRATIVE TRAJECTORY` section showing headline count, source escalation, and trajectory score
+
+**Value**: Answers the #1 question for gap trades: "Is this catalyst real or fading?" Directly addresses whether buying pressure will continue through the trading session.
+
+---
+
+### Idea #4: Historical Analog Matching - Phase 5
+**Status**: NOT IMPLEMENTED
+**Priority**: HIGH
+
+**Description**:
+Finds the most similar past trades from `trade_outcomes.jsonl` and tells the LLM "setups like this have won 4 out of 5 times." Grounded in actual trade data, not generic patterns.
+
+**Current State**:
+- The charting app has a `HistoricalPatternMatch.tsx` panel that displays historical analogs in the UI
+- The trader app has `trade_outcomes.jsonl` with full context for each trade (gap_pct, float, catalyst_type, volume_ratio, time, outcome)
+- There is **no** vector similarity function to find top-N analogs
+- Historical analog data is **not** passed to the LLM during validation
+
+**Implementation Path**:
+1. **Charting app backend**: Build a similarity scoring function comparing current stock context against historical trades using: gap_pct, float, catalyst_type, volume_ratio, time_of_day, market_heat
+2. **Charting app backend**: Find top 5 most similar trades and their outcomes (win/loss, P&L)
+3. **Charting app prompt**: Add `## HISTORICAL ANALOGS` section showing closest matches and their outcomes
+4. **LLM evaluation**: Ask the LLM to compare current setup vs. analogs and adjust confidence based on historical outcomes
+
+**Value**: Rated HIGHEST priority in the source document. This is the strongest use case because it's grounded in real trade data. Could be the single biggest contributor to pushing win rate above 65%.
+
+---
+
+### Idea #5: Float/Catalyst/Time Interaction Analysis - Phase 5
+**Status**: BLOCKED (waiting on 4+ weeks of signal_events data)
+**Priority**: MEDIUM
+
+**Description**:
+Identifies 3-way interaction patterns that humans can't track in real-time. Example outputs:
+- "Sub-5M float + earnings catalyst + first 30 minutes = high win rate"
+- "Sub-5M float + PR catalyst + after 10:30 = low win rate (momentum faded)"
+- "Sub-1M float + any catalyst + after 11:00 = very low win rate (liquidity trap)"
+
+**Current State**:
+The `signal_events` table from v1.45.0 Signal Intelligence is collecting gate decisions and theoretical outcomes via EOD backfill. The data needs 2-4 weeks of collection before interaction analysis is statistically meaningful (minimum n >= 10 per combination).
+
+**Implementation Path**:
+1. **Wait for data maturity**: Minimum 2-4 weeks of `signal_events` with EOD backfill
+2. **Trader app**: Run aggregation queries to identify profitable/unprofitable float x catalyst x time combinations (SQL examples in `HIGH_VALUE_LLM_PATTERN_DETECTION.md`)
+3. **Build filter rules**: Convert statistically significant patterns into concrete rules
+4. **Charting app prompt**: Add `## INTERACTION PROFILE` section showing the historical win rate for the current stock's specific float/catalyst/time combination
+
+**Value**: Produces concrete, data-driven filter rules. Example: "Sub-1M float + PR catalyst + after 11:00 AM has a 23% win rate across 15 signals - avoid." Most rigorous approach but requires the most data.
+
+---
+
+### Phase 5 Implementation Priority
+
+| Idea | Change Type | Dependency | Implement When |
+|------|-------------|------------|----------------|
+| **#1 Catalyst-Response** | Prompt-only | None | **Done** (v1.5.0) |
+| **#2 Sector Momentum** | Prompt + API | Trader app `/api/market-context` endpoint | After trader app exposes sector data |
+| **#4 Historical Analogs** | Backend + Prompt | Similarity function + trade data access | Next major feature cycle |
+| **#3 Headline Trajectory** | Prompt + API | Trader app headline aggregation | After trader app builds trajectory |
+| **#5 Interaction Analysis** | Backend + Prompt | 4+ weeks signal_events data | After data maturity |
+
+---
+
+**Last Updated**: 2026-01-26
 **Maintain this file** as features are implemented and new ideas emerge
