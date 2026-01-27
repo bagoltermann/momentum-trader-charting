@@ -1,8 +1,8 @@
 # ============================================================================
 # LLM Signal Validation Prompts Configuration
 # ============================================================================
-# Version: 1.4.0
-# Last Updated: 2026-01-23
+# Version: 1.5.0
+# Last Updated: 2026-01-26
 #
 # This file contains LLM prompts for real-time signal validation.
 # Edit these prompts to tune validation behavior without code changes.
@@ -112,6 +112,21 @@ user_prompt_template: |
   **Definitive:** {has_definitive_catalyst}
   **Details:** {catalyst_details}
 
+  ## CATALYST-RESPONSE ANALYSIS
+
+  Evaluate whether the price response is PROPORTIONAL to the catalyst quality:
+
+  - **Catalyst Strength:** {catalyst_strength}/10
+  - **Gap Size:** {gap_percent}%
+  - **Volume Response:** {volume_ratio}x
+  - **Float:** {float_formatted}
+
+  Consider these mismatch patterns:
+  - **OVER-REACTION (FOMO risk):** Gap >20% on catalyst strength <5/10 = retail FOMO, likely to fade
+  - **UNDER-REACTION (opportunity):** Gap <15% on catalyst strength >7/10 = institutional accumulation, room to run
+  - **PROPORTIONAL:** Gap size roughly matches catalyst quality = normal response
+  - **Float amplification:** Sub-5M float amplifies any catalyst. A 30% gap on a micro-float with a 4/10 catalyst is float-driven, not catalyst-driven.
+
   ## RUNNER STATUS
 
   {runner_section}
@@ -170,6 +185,7 @@ user_prompt_template: |
   - If price is DOWN more than 5% from day high → strong bias toward "wait" or "no_trade"
   - If REAL-TIME CATALYST BOOST shows "BREAKING NEWS DETECTED" → increase confidence by 10-15 points (fresh catalyst supports entry)
   - If FIRST PULLBACK PATTERN shows "FIRST PULLBACK PATTERN DETECTED" → this OVERRIDES the normal "below VWAP" caution. Entry on oversold bounce is valid.
+  - If catalyst_strength is <=4 AND gap >20% → this is likely FOMO-driven over-reaction. Bias toward "wait" unless volume is extreme (>10x) AND VWAP zone is GREEN. Flag "FOMO over-reaction risk" in key_concern.
   - Only signal "buy" for HOT or fresh setups with favorable VWAP zone and volume, OR valid First Pullback patterns
 
   Respond with ONLY valid JSON (no markdown, no explanation):
