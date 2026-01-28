@@ -6,7 +6,7 @@ import json
 import logging
 import asyncio
 from services.schwab_client import ChartSchwabClient, get_cached_candles
-from services.file_watcher import get_cached_watchlist, get_cached_runners
+from services.file_watcher import get_cached_watchlist_async, get_cached_runners
 from services.llm_validator import get_validator, ValidationResult
 from core.config import load_config
 
@@ -51,8 +51,8 @@ async def get_watchlist():
     Fetches fresh data from trader app (http://localhost:8080/api/watchlist)
     to ensure charting app shows exactly what trader app shows.
     """
-    # Always refresh from trader API to stay in sync
-    watchlist = get_cached_watchlist(refresh=True)
+    # Always refresh from trader API to stay in sync (async to avoid blocking event loop)
+    watchlist = await get_cached_watchlist_async(refresh=True)
     if watchlist is None:
         raise HTTPException(status_code=503, detail="Watchlist not available - trader app may not be running")
 

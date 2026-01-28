@@ -131,15 +131,35 @@ def stop_file_watchers():
 
 def get_cached_watchlist(refresh: bool = False) -> Optional[List[Dict]]:
     """
-    Get watchlist, optionally refreshing from trader API.
+    Get watchlist, optionally refreshing from trader API (SYNC version - for startup only).
 
     Args:
         refresh: If True, fetch fresh data from trader API (but only if cache is stale)
+
+    WARNING: This is synchronous and will block. Use get_cached_watchlist_async() from async routes.
     """
     if refresh:
         # Only actually fetch if cache is stale (older than TTL)
         if time_module.time() - _watchlist_cache_time > _WATCHLIST_CACHE_TTL:
             fetch_watchlist_from_trader()
+
+    with _cache_lock:
+        return _cached_watchlist
+
+
+async def get_cached_watchlist_async(refresh: bool = False) -> Optional[List[Dict]]:
+    """
+    Get watchlist, optionally refreshing from trader API (ASYNC version - use from routes).
+
+    Wraps the sync httpx call in asyncio.to_thread() to avoid blocking the event loop.
+    """
+    import asyncio
+
+    if refresh:
+        # Only actually fetch if cache is stale (older than TTL)
+        if time_module.time() - _watchlist_cache_time > _WATCHLIST_CACHE_TTL:
+            # Run sync httpx call in thread pool to avoid blocking event loop
+            await asyncio.to_thread(fetch_watchlist_from_trader)
 
     with _cache_lock:
         return _cached_watchlist

@@ -151,6 +151,19 @@ The `asyncio.wait_for()` wrapper is production-grade defensive coding, but it ma
 - Failed requests return None, which the frontend handles gracefully
 - The real fix requires significant investigation time that's better spent during market hours when the issue is reproducible
 
+### 9. Sync Watchlist Fetch Blocking Event Loop (FIXED 2026-01-28)
+- **Trigger:** Normal operation - `/api/watchlist` route called every 5s by frontend
+- **Impact:** Backend becomes unresponsive. Log shows watchlist polls stopping, no more entries logged.
+- **Observed:** Log shows successful watchlist fetches (e.g., `HTTP Request: GET http://localhost:8080/api/watchlist "HTTP/1.1 200 OK"`) then stops completely, with no "Starting request" left incomplete.
+- **Root cause:** `file_watcher.py` used **synchronous httpx** (`httpx.Client`) to fetch watchlist from trader app. Even with a 5s timeout, this blocked the entire async event loop while waiting for the response. If the trader app became slow (busy processing, high load), the blocking call would freeze all other requests.
+- **Evidence in logs:** Last entries show successful watchlist fetches at 10s intervals, then nothing - no incomplete requests, just silence.
+- **Files:** `backend/services/file_watcher.py` (sync httpx client), `backend/api/routes.py` (async route calling sync function)
+- **Fix:**
+  1. Created `get_cached_watchlist_async()` that wraps `fetch_watchlist_from_trader()` in `asyncio.to_thread()`
+  2. Updated `/api/watchlist` route to use the async version
+  3. Original sync version kept for startup initialization
+- **Verification:** Backend should remain responsive even if trader app is slow. Watchlist fetches run in thread pool, not blocking the event loop.
+
 ## Debugging Checklist (Quick Reference)
 
 1. **Is backend port open?** `netstat -ano | findstr :8081 | findstr LISTENING`
@@ -161,6 +174,7 @@ The `asyncio.wait_for()` wrapper is production-grade defensive coding, but it ma
 
 ## Files Referenced
 - `backend/services/schwab_client.py` - Schwab API client, semaphore, circuit breaker
+- `backend/services/file_watcher.py` - Watchlist fetch from trader app, runners file watcher
 - `backend/services/quote_relay.py` - SocketIO relay to trader app for streaming
 - `backend/api/routes.py` - WebSocket endpoint `/ws/quotes`, REST endpoints
 - `backend/main.py` - Uvicorn server config
