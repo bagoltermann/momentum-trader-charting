@@ -15,6 +15,7 @@ import json
 import threading
 import time as time_module
 import httpx
+import asyncio
 from typing import Optional, Dict, List
 
 # Cached data
@@ -28,16 +29,29 @@ _trader_api_url: str = "http://localhost:8080"
 _watchlist_cache_time: float = 0
 _WATCHLIST_CACHE_TTL = 5.0  # seconds - fast enough for live trading
 
-# Reusable httpx client (avoids creating new client per request)
-_httpx_client: Optional[httpx.Client] = None
+# Async httpx client for non-blocking API calls
+_async_httpx_client: Optional[httpx.AsyncClient] = None
+_async_client_lock: Optional[asyncio.Lock] = None
 
 
-def _get_httpx_client() -> httpx.Client:
-    """Get or create the reusable httpx client"""
-    global _httpx_client
-    if _httpx_client is None:
-        _httpx_client = httpx.Client(timeout=5.0)
-    return _httpx_client
+def _get_async_lock() -> asyncio.Lock:
+    """Lazy initialization of async client lock"""
+    global _async_client_lock
+    if _async_client_lock is None:
+        _async_client_lock = asyncio.Lock()
+    return _async_client_lock
+
+
+async def _get_async_httpx_client() -> httpx.AsyncClient:
+    """Get or create the reusable async httpx client"""
+    global _async_httpx_client
+    async with _get_async_lock():
+        if _async_httpx_client is None or _async_httpx_client.is_closed:
+            _async_httpx_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(5.0, connect=3.0),
+                limits=httpx.Limits(max_connections=5, max_keepalive_connections=2)
+            )
+        return _async_httpx_client
 
 
 class DataFileHandler(FileSystemEventHandler):
@@ -70,9 +84,9 @@ class DataFileHandler(FileSystemEventHandler):
             print(f"[ERROR] Failed to reload runners: {e}")
 
 
-def fetch_watchlist_from_trader() -> Optional[List[Dict]]:
+async def fetch_watchlist_from_trader_async() -> Optional[List[Dict]]:
     """
-    Fetch watchlist directly from trader app API.
+    Fetch watchlist directly from trader app API (async version).
 
     This ensures charting app shows exactly what trader app shows,
     avoiding sync issues with watchlist_state.json (which contains
@@ -80,8 +94,12 @@ def fetch_watchlist_from_trader() -> Optional[List[Dict]]:
     """
     global _cached_watchlist, _watchlist_cache_time
     try:
-        client = _get_httpx_client()
-        response = client.get(f"{_trader_api_url}/api/watchlist")
+        client = await _get_async_httpx_client()
+        # Use wait_for to hard-limit request time (prevents indefinite hangs)
+        response = await asyncio.wait_for(
+            client.get(f"{_trader_api_url}/api/watchlist"),
+            timeout=5.0
+        )
         response.raise_for_status()
         watchlist = response.json()
 
@@ -93,6 +111,40 @@ def fetch_watchlist_from_trader() -> Optional[List[Dict]]:
         return watchlist
     except httpx.ConnectError:
         print("[WARNING] Trader app not available - using cached watchlist")
+        return None
+    except asyncio.TimeoutError:
+        print("[WARNING] Watchlist fetch timed out after 5s - using cached watchlist")
+        return None
+    except Exception as e:
+        print(f"[ERROR] Failed to fetch watchlist from trader API: {e}")
+        return None
+
+
+def fetch_watchlist_from_trader() -> Optional[List[Dict]]:
+    """
+    Fetch watchlist directly from trader app API (sync version - for startup only).
+
+    WARNING: This is synchronous and will block. Use fetch_watchlist_from_trader_async() from async routes.
+    """
+    global _cached_watchlist, _watchlist_cache_time
+    try:
+        # Create a one-off sync client with strict timeout
+        with httpx.Client(timeout=httpx.Timeout(5.0, connect=3.0)) as client:
+            response = client.get(f"{_trader_api_url}/api/watchlist")
+            response.raise_for_status()
+            watchlist = response.json()
+
+        with _cache_lock:
+            _cached_watchlist = watchlist
+            _watchlist_cache_time = time_module.time()
+
+        print(f"[OK] Watchlist fetched from trader API: {len(watchlist)} stocks")
+        return watchlist
+    except httpx.ConnectError:
+        print("[WARNING] Trader app not available - using cached watchlist")
+        return None
+    except httpx.TimeoutException:
+        print("[WARNING] Watchlist fetch timed out - using cached watchlist")
         return None
     except Exception as e:
         print(f"[ERROR] Failed to fetch watchlist from trader API: {e}")
@@ -129,6 +181,15 @@ def stop_file_watchers():
         print("[OK] File watcher stopped")
 
 
+async def close_async_client():
+    """Close the async httpx client (call on shutdown)"""
+    global _async_httpx_client
+    if _async_httpx_client and not _async_httpx_client.is_closed:
+        await _async_httpx_client.aclose()
+        _async_httpx_client = None
+        print("[OK] File watcher async client closed")
+
+
 def get_cached_watchlist(refresh: bool = False) -> Optional[List[Dict]]:
     """
     Get watchlist, optionally refreshing from trader API (SYNC version - for startup only).
@@ -151,23 +212,13 @@ async def get_cached_watchlist_async(refresh: bool = False) -> Optional[List[Dic
     """
     Get watchlist, optionally refreshing from trader API (ASYNC version - use from routes).
 
-    Wraps the sync httpx call in asyncio.to_thread() to avoid blocking the event loop.
-    Uses wait_for timeout to prevent indefinite blocking if thread pool is saturated.
+    Uses native async httpx client - no thread pool needed, no blocking.
     """
-    import asyncio
-
     if refresh:
         # Only actually fetch if cache is stale (older than TTL)
         if time_module.time() - _watchlist_cache_time > _WATCHLIST_CACHE_TTL:
-            # Run sync httpx call in thread pool to avoid blocking event loop
-            # Wrap in wait_for with 10s timeout (5s httpx + 5s buffer for thread acquisition)
-            try:
-                await asyncio.wait_for(
-                    asyncio.to_thread(fetch_watchlist_from_trader),
-                    timeout=10.0
-                )
-            except asyncio.TimeoutError:
-                print("[WARNING] Watchlist fetch timed out after 10s - using cached data")
+            # Use native async fetch - no thread pool, no blocking
+            await fetch_watchlist_from_trader_async()
 
     with _cache_lock:
         return _cached_watchlist

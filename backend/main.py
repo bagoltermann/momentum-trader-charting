@@ -27,7 +27,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from api.routes import router, get_schwab_client, set_quote_relay
-from services.file_watcher import start_file_watchers, stop_file_watchers
+from services.file_watcher import start_file_watchers, stop_file_watchers, close_async_client
 from services.schwab_client import close_shared_client
 from services.quote_relay import QuoteRelay
 from core.config import load_config
@@ -83,8 +83,9 @@ async def shutdown_event():
     stop_file_watchers()
     if quote_relay:
         quote_relay.stop()
-    # Close the shared httpx client
+    # Close httpx clients
     await close_shared_client()
+    await close_async_client()
     # Shutdown thread pool gracefully
     _thread_pool.shutdown(wait=False)
     print("[OK] Charting backend shutdown complete")

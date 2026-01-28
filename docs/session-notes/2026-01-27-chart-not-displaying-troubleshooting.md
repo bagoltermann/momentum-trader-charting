@@ -217,6 +217,38 @@ The `asyncio.wait_for()` wrapper is production-grade defensive coding, but it ma
   5. **Timestamp tracking for incremental updates:** Track `lastTime` in addition to count/symbol. Only use `update()` when new candle time >= last known time; otherwise fall back to full `setData()`. Reset tracking on error to force clean reload.
 - **Verification:** Click on stocks with sparse data (e.g., IMSRW with 24 candles) → should render chart or show error message, never crash to blank screen. Console should show "Full setData" instead of crashing on timestamp mismatch.
 
+### 12. Sync httpx Client in file_watcher.py Causing Hangs (FIXED 2026-01-28)
+- **Trigger:** Normal operation - watchlist refresh from trader app API (called every 5s by frontend)
+- **Impact:** Backend becomes completely unresponsive. All HTTP endpoints and WebSocket connections stop responding.
+- **Observed:** Backend port (8081) is still listening (PID active), but curl requests hang. Log file shows last entries ~5 minutes before hang, then silence.
+- **Root cause:** Even after adding `asyncio.to_thread()` wrapper in `get_cached_watchlist_async()`, the underlying httpx.Client was **module-level and reused** across calls. The sync httpx.Client:
+  1. Had no connection limits configured (could exhaust connections)
+  2. The 5.0s timeout only applies to individual request operations, not connection establishment or SSL handshakes
+  3. If trader app became slow or hung, the sync client could get stuck in a state where the connection pool is waiting
+  4. Even wrapped in `asyncio.to_thread()`, this consumed thread pool threads indefinitely
+- **Evidence in logs:** Last entries show normal operation, then complete silence. No incomplete "Starting request" entries. Different from #10 (thread pool exhaustion) because the hang persists even with 50-thread pool.
+- **Files:**
+  - `backend/services/file_watcher.py` - Sync httpx.Client replaced with httpx.AsyncClient
+  - `backend/main.py` - Added cleanup for async client on shutdown
+- **Fix:**
+  1. **Converted to native async httpx.AsyncClient** with proper limits:
+     ```python
+     _async_httpx_client = httpx.AsyncClient(
+         timeout=httpx.Timeout(5.0, connect=3.0),
+         limits=httpx.Limits(max_connections=5, max_keepalive_connections=2)
+     )
+     ```
+  2. **Native async fetch** in `fetch_watchlist_from_trader_async()` - no thread pool needed
+  3. **Hard timeout wrapper** using `asyncio.wait_for()` around the request
+  4. **Startup sync client** for initial load is now a one-off `with httpx.Client(...) as client:` context manager that closes after use
+  5. **Proper cleanup** on shutdown via `close_async_client()` function
+- **Why native async is better than to_thread():**
+  - No thread pool consumption
+  - No risk of thread pool exhaustion
+  - Proper async timeout handling (asyncio.wait_for works correctly)
+  - Connection pool managed by asyncio event loop, not blocking threads
+- **Verification:** Backend should remain responsive even if trader app is slow or hung. Watchlist fetches will timeout after 5s and return cached data instead of hanging indefinitely.
+
 ## Debugging Checklist (Quick Reference)
 
 1. **Is backend port open?** `netstat -ano | findstr :8081 | findstr LISTENING`
