@@ -95,7 +95,8 @@ export function EnhancedChart({
   const chartContainerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   // Track previous data for incremental updates (detect append vs full reload)
-  const prevDataRef = useRef<{ count: number; symbol: string }>({ count: 0, symbol: '' })
+  // lastTime tracks the most recent candle timestamp to avoid lightweight-charts "Cannot update oldest data" error
+  const prevDataRef = useRef<{ count: number; symbol: string; lastTime: number }>({ count: 0, symbol: '', lastTime: 0 })
   const seriesRef = useRef<SeriesRefs>({
     candlestick: null,
     vwap: null,
@@ -109,16 +110,45 @@ export function EnhancedChart({
     priceLines: [],
   })
 
-  // Calculate indicators
-  const { vwap, bands } = useMemo(() => calculateVWAPBands(rawCandles), [rawCandles])
-  const ema9 = useMemo(() => calculateEMA(rawCandles, 9), [rawCandles])
-  const ema20 = useMemo(() => calculateEMA(rawCandles, 20), [rawCandles])
+  // Calculate indicators with defensive error handling
+  const { vwap, bands } = useMemo(() => {
+    try {
+      if (rawCandles.length < 2) return { vwap: [], bands: [] }
+      return calculateVWAPBands(rawCandles)
+    } catch (e) {
+      debugLog(`[EnhancedChart] ${symbol} VWAP calculation error: ${e}`)
+      return { vwap: [], bands: [] }
+    }
+  }, [rawCandles, symbol])
+  const ema9 = useMemo(() => {
+    try {
+      if (rawCandles.length < 9) return []
+      return calculateEMA(rawCandles, 9)
+    } catch (e) {
+      debugLog(`[EnhancedChart] ${symbol} EMA9 calculation error: ${e}`)
+      return []
+    }
+  }, [rawCandles, symbol])
+  const ema20 = useMemo(() => {
+    try {
+      if (rawCandles.length < 20) return []
+      return calculateEMA(rawCandles, 20)
+    } catch (e) {
+      debugLog(`[EnhancedChart] ${symbol} EMA20 calculation error: ${e}`)
+      return []
+    }
+  }, [rawCandles, symbol])
 
   // Detect micro-pullback pattern
   const microPullback = useMemo(() => {
-    if (!detectPatterns || rawCandles.length < 10) return null
-    return detectMicroPullback(rawCandles)
-  }, [rawCandles, detectPatterns])
+    try {
+      if (!detectPatterns || rawCandles.length < 10) return null
+      return detectMicroPullback(rawCandles)
+    } catch (e) {
+      debugLog(`[EnhancedChart] ${symbol} microPullback detection error: ${e}`)
+      return null
+    }
+  }, [rawCandles, detectPatterns, symbol])
 
   // Pre-compute VWAP band arrays in a single pass (avoids 4 separate .map() calls)
   const { bandUpper1, bandUpper2, bandLower1, bandLower2 } = useMemo(() => {
@@ -157,12 +187,18 @@ export function EnhancedChart({
     // Clean up existing chart
     if (chartRef.current) {
       debugLog(`[EnhancedChart] ${symbol} Effect1: Removing existing chart`)
-      chartRef.current.remove()
+      try {
+        chartRef.current.remove()
+      } catch (e) {
+        debugLog(`[EnhancedChart] ${symbol} Effect1: Error removing chart: ${e}`)
+      }
       chartRef.current = null
     }
 
-    // Create chart
-    const chart = createChart(chartContainerRef.current, {
+    // Create chart with error handling
+    let chart: IChartApi
+    try {
+      chart = createChart(chartContainerRef.current, {
       width: chartContainerRef.current.clientWidth,
       height,
       layout: {
@@ -314,8 +350,13 @@ export function EnhancedChart({
       priceLines: [],
     }
     // Reset incremental tracking - new chart means first load should be full setData
-    prevDataRef.current = { count: 0, symbol: '' }
+    prevDataRef.current = { count: 0, symbol: '', lastTime: 0 }
     debugLog(`[EnhancedChart] ${symbol} Effect1: Chart and series created successfully`)
+    } catch (e) {
+      debugLog(`[EnhancedChart] ${symbol} Effect1: FATAL - Chart creation failed: ${e}`)
+      console.error(`[EnhancedChart] Chart creation error for ${symbol}:`, e)
+      return
+    }
 
     // Handle resize
     const handleResize = () => {
@@ -362,77 +403,87 @@ export function EnhancedChart({
       return
     }
 
-    const prev = prevDataRef.current
-    const lastCandle = candles[candles.length - 1]
+    try {
+      const prev = prevDataRef.current
+      const lastCandle = candles[candles.length - 1]
+      const lastCandleTime = lastCandle.time as number
 
-    // Determine if this is an incremental update:
-    // Same symbol, count difference <= 1, and we had data before
-    const isIncremental = prev.symbol === symbol &&
-      prev.count > 0 &&
-      candles.length >= prev.count &&
-      candles.length <= prev.count + 1
+      // Determine if this is an incremental update:
+      // Same symbol, count difference <= 1, we had data before, AND new candle time >= last known time
+      // The time check prevents lightweight-charts "Cannot update oldest data" error
+      const isIncremental = prev.symbol === symbol &&
+        prev.count > 0 &&
+        candles.length >= prev.count &&
+        candles.length <= prev.count + 1 &&
+        lastCandleTime >= prev.lastTime
 
-    if (isIncremental) {
-      // Incremental: update just the last candle (and +1 new candle if appended)
-      debugLog(`[EnhancedChart] ${symbol} Effect2: Incremental update (${prev.count} -> ${candles.length})`)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- lightweight-charts update() has stricter Time type than setData()
-      series.candlestick.update(lastCandle as any)
+      if (isIncremental) {
+        // Incremental: update just the last candle (and +1 new candle if appended)
+        debugLog(`[EnhancedChart] ${symbol} Effect2: Incremental update (${prev.count} -> ${candles.length}, time ${prev.lastTime} -> ${lastCandleTime})`)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- lightweight-charts update() has stricter Time type than setData()
+        series.candlestick.update(lastCandle as any)
 
-      // Update indicators incrementally too
-      if (series.vwap && vwap.length > 0) {
-        series.vwap.update(vwap[vwap.length - 1] as any)
-      }
-      if (series.ema9 && ema9.length > 0) {
-        series.ema9.update(ema9[ema9.length - 1] as any)
-      }
-      if (series.ema20 && ema20.length > 0) {
-        series.ema20.update(ema20[ema20.length - 1] as any)
-      }
-      if (series.volume && volumeData.length > 0) {
-        series.volume.update(volumeData[volumeData.length - 1] as any)
-      }
-      // VWAP bands: update last point
-      if (bands.length > 0) {
-        const lastBand = bands[bands.length - 1]
-        if (series.upper1) series.upper1.update({ time: lastBand.time, value: lastBand.upper1 } as any)
-        if (series.upper2) series.upper2.update({ time: lastBand.time, value: lastBand.upper2 } as any)
-        if (series.lower1) series.lower1.update({ time: lastBand.time, value: lastBand.lower1 } as any)
-        if (series.lower2) series.lower2.update({ time: lastBand.time, value: lastBand.lower2 } as any)
-      }
-    } else {
-      // Full reload: symbol change or substantial data difference
-      debugLog(`[EnhancedChart] ${symbol} Effect2: Full setData (${candles.length} candles)`)
-      series.candlestick.setData(candles as any)
+        // Update indicators incrementally too
+        if (series.vwap && vwap.length > 0) {
+          series.vwap.update(vwap[vwap.length - 1] as any)
+        }
+        if (series.ema9 && ema9.length > 0) {
+          series.ema9.update(ema9[ema9.length - 1] as any)
+        }
+        if (series.ema20 && ema20.length > 0) {
+          series.ema20.update(ema20[ema20.length - 1] as any)
+        }
+        if (series.volume && volumeData.length > 0) {
+          series.volume.update(volumeData[volumeData.length - 1] as any)
+        }
+        // VWAP bands: update last point
+        if (bands.length > 0) {
+          const lastBand = bands[bands.length - 1]
+          if (series.upper1) series.upper1.update({ time: lastBand.time, value: lastBand.upper1 } as any)
+          if (series.upper2) series.upper2.update({ time: lastBand.time, value: lastBand.upper2 } as any)
+          if (series.lower1) series.lower1.update({ time: lastBand.time, value: lastBand.lower1 } as any)
+          if (series.lower2) series.lower2.update({ time: lastBand.time, value: lastBand.lower2 } as any)
+        }
+      } else {
+        // Full reload: symbol change or substantial data difference
+        debugLog(`[EnhancedChart] ${symbol} Effect2: Full setData (${candles.length} candles)`)
+        series.candlestick.setData(candles as any)
 
-      if (series.vwap && vwap.length > 0) {
-        series.vwap.setData(vwap as any)
+        if (series.vwap && vwap.length > 0) {
+          series.vwap.setData(vwap as any)
+        }
+        if (series.ema9 && ema9.length > 0) {
+          series.ema9.setData(ema9 as any)
+        }
+        if (series.ema20 && ema20.length > 0) {
+          series.ema20.setData(ema20 as any)
+        }
+        if (series.upper1 && bandUpper1.length > 0) {
+          series.upper1.setData(bandUpper1 as any)
+        }
+        if (series.upper2 && bandUpper2.length > 0) {
+          series.upper2.setData(bandUpper2 as any)
+        }
+        if (series.lower1 && bandLower1.length > 0) {
+          series.lower1.setData(bandLower1 as any)
+        }
+        if (series.lower2 && bandLower2.length > 0) {
+          series.lower2.setData(bandLower2 as any)
+        }
+        if (series.volume && volumeData.length > 0) {
+          series.volume.setData(volumeData as any)
+        }
+        chart.timeScale().fitContent()
       }
-      if (series.ema9 && ema9.length > 0) {
-        series.ema9.setData(ema9 as any)
-      }
-      if (series.ema20 && ema20.length > 0) {
-        series.ema20.setData(ema20 as any)
-      }
-      if (series.upper1 && bandUpper1.length > 0) {
-        series.upper1.setData(bandUpper1 as any)
-      }
-      if (series.upper2 && bandUpper2.length > 0) {
-        series.upper2.setData(bandUpper2 as any)
-      }
-      if (series.lower1 && bandLower1.length > 0) {
-        series.lower1.setData(bandLower1 as any)
-      }
-      if (series.lower2 && bandLower2.length > 0) {
-        series.lower2.setData(bandLower2 as any)
-      }
-      if (series.volume && volumeData.length > 0) {
-        series.volume.setData(volumeData as any)
-      }
-      chart.timeScale().fitContent()
+
+      // Track current state for next comparison
+      prevDataRef.current = { count: candles.length, symbol, lastTime: lastCandleTime }
+    } catch (e) {
+      debugLog(`[EnhancedChart] ${symbol} Effect2: ERROR updating chart data: ${e}`)
+      console.error(`[EnhancedChart] Data update error for ${symbol}:`, e)
+      // Reset tracking on error to force full reload next time
+      prevDataRef.current = { count: 0, symbol: '', lastTime: 0 }
     }
-
-    // Track current state for next comparison
-    prevDataRef.current = { count: candles.length, symbol }
   }, [symbol, candles, vwap, ema9, ema20, bands, bandUpper1, bandUpper2, bandLower1, bandLower2, volumeData])
 
   // Effect 3: Update price lines (entry zones, patterns, etc.)
@@ -440,20 +491,21 @@ export function EnhancedChart({
     const series = seriesRef.current
     if (!series.candlestick) return
 
-    // Remove old price lines
-    series.priceLines.forEach(line => {
-      try {
-        series.candlestick?.removePriceLine(line)
-      } catch (e) {
-        // Line may already be removed
-      }
-    })
-    series.priceLines = []
+    try {
+      // Remove old price lines
+      series.priceLines.forEach(line => {
+        try {
+          series.candlestick?.removePriceLine(line)
+        } catch (e) {
+          // Line may already be removed
+        }
+      })
+      series.priceLines = []
 
-    // Add entry zone price lines with D1 High proximity detection
-    const currentPrice = candles.length > 0 ? candles[candles.length - 1].close : null
+      // Add entry zone price lines with D1 High proximity detection
+      const currentPrice = candles.length > 0 ? candles[candles.length - 1].close : null
 
-    entryZones.forEach(zone => {
+      entryZones.forEach(zone => {
       let color = zone.type === 'entry' ? '#00E676' :
                   zone.type === 'stop' ? '#FF5252' : '#FFD600'
       let lineWidth = 1
@@ -617,7 +669,11 @@ export function EnhancedChart({
         title: `Target $${flagPennantPattern.targetPrice.toFixed(2)}`,
       }))
     }
-  }, [entryZones, riskReward, microPullback, supportResistanceLevels, gapZones, flagPennantPattern, candles])
+    } catch (e) {
+      debugLog(`[EnhancedChart] ${symbol} Effect3: ERROR updating price lines: ${e}`)
+      console.error(`[EnhancedChart] Price lines error for ${symbol}:`, e)
+    }
+  }, [entryZones, riskReward, microPullback, supportResistanceLevels, gapZones, flagPennantPattern, candles, symbol])
 
   // Calculate current VWAP distance for display
   const vwapDistance = useMemo(() => {

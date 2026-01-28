@@ -1,5 +1,6 @@
 import { useMemo, useEffect } from 'react'
 import { EnhancedChart, EntryZoneLevel, RiskRewardConfig } from './EnhancedChart'
+import { ErrorBoundary } from '../ErrorBoundary'
 import { useCandleData } from '../../hooks/useCandleData'
 import { Runner } from '../../hooks/useRunners'
 import { usePatternOverlayStore } from '../../store/patternOverlayStore'
@@ -176,27 +177,29 @@ export function MultiChartGrid({ primarySymbol, secondarySymbols, runners }: Mul
                 {primarySymbol}: {primaryError}
               </div>
             )}
-            <EnhancedChart
-              key={primarySymbol}
-              symbol={primarySymbol}
-              timeframe="1m"
-              candles={primaryCandles}
-              rawCandles={primaryRaw}
-              height={500}
-              showVWAP={true}
-              showVWAPBands={false}
-              showVolume={true}
-              showEMA9={true}
-              showEMA20={true}
-              entryZones={primaryEntryZones}
-              riskReward={primaryRiskReward}
-              supportResistanceLevels={supportResistanceLevels}
-              gapZones={gapZones}
-              flagPennantPattern={flagPennantPattern}
-              gapPercent={primaryGapPercent}
-              totalVolume={primaryTotalVolume}
-              avgVolume={primaryAvgVolume}
-            />
+            <ErrorBoundary name={`Chart:${primarySymbol}`}>
+              <EnhancedChart
+                key={primarySymbol}
+                symbol={primarySymbol}
+                timeframe="1m"
+                candles={primaryCandles}
+                rawCandles={primaryRaw}
+                height={500}
+                showVWAP={true}
+                showVWAPBands={false}
+                showVolume={true}
+                showEMA9={true}
+                showEMA20={true}
+                entryZones={primaryEntryZones}
+                riskReward={primaryRiskReward}
+                supportResistanceLevels={supportResistanceLevels}
+                gapZones={gapZones}
+                flagPennantPattern={flagPennantPattern}
+                gapPercent={primaryGapPercent}
+                totalVolume={primaryTotalVolume}
+                avgVolume={primaryAvgVolume}
+              />
+            </ErrorBoundary>
           </>
         ) : (
           <div className="no-symbol-selected">
@@ -231,19 +234,21 @@ function SecondaryChart({ symbol, runners }: { symbol: string; runners: Runner[]
           <span className="error-text">{error}</span>
         </div>
       ) : (
-        <EnhancedChart
-          symbol={symbol}
-          timeframe="5m"
-          candles={candles}
-          rawCandles={rawCandles}
-          height={200}
-          showVWAP={true}
-          showVWAPBands={false}
-          showVolume={false}
-          showEMA9={false}
-          showEMA20={false}
-          entryZones={entryZones}
-        />
+        <ErrorBoundary name={`Chart:${symbol}`}>
+          <EnhancedChart
+            symbol={symbol}
+            timeframe="5m"
+            candles={candles}
+            rawCandles={rawCandles}
+            height={200}
+            showVWAP={true}
+            showVWAPBands={false}
+            showVolume={false}
+            showEMA9={false}
+            showEMA20={false}
+            entryZones={entryZones}
+          />
+        </ErrorBoundary>
       )}
     </div>
   )

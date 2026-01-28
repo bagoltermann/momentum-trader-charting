@@ -3,7 +3,7 @@
  * Set DEBUG_CHARTS = true to enable verbose chart logging in DevTools console.
  * Keep false in production to reduce UI thread overhead.
  */
-const DEBUG_CHARTS = false
+const DEBUG_CHARTS = false  // Set to true for verbose chart logging in DevTools console
 
 export function debugLog(msg: string): void {
   if (DEBUG_CHARTS) {

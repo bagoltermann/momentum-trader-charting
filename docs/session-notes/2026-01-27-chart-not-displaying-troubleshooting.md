@@ -195,19 +195,27 @@ The `asyncio.wait_for()` wrapper is production-grade defensive coding, but it ma
   3. **Graceful fallback** on timeout - returns cached/fallback data instead of blocking
 - **Verification:** Backend should remain responsive even under heavy LLM validation load. Timeouts should trigger and log warnings instead of silent hangs.
 
-### 11. Frontend Freeze / Blank Screen (INVESTIGATING 2026-01-28)
-- **Trigger:** Unknown - occurs after clicking through stocks, even with backend fixes applied
-- **Impact:** Chart screen goes blank. Backend is still responding to requests, but frontend stops sending watchlist polls.
+### 11. Frontend Freeze / Blank Screen (FIXED 2026-01-28)
+- **Trigger:** Clicking on stocks with sparse data (8-24 candles) during pre-market. Uncaught exceptions in chart operations crash the React component tree.
+- **Impact:** Chart screen goes blank. Backend is still responding to requests, but frontend React tree is broken.
 - **Observed:** Backend log shows candle requests continuing (30s refresh interval), but watchlist polls stop (should be every 5s). Backend health endpoint responds immediately.
-- **Root cause:** Under investigation. Likely causes:
-  1. TradingView lightweight-charts library issue with sparse data (8-24 candles)
-  2. React component state issue causing re-render loop or freeze
-  3. Electron renderer process memory issue
-  4. WebSocket reconnection causing state corruption
-- **Evidence:** Backend log shows candle requests continuing at 30s intervals for the last selected symbol, but no new symbol selections and no watchlist polls.
-- **Files:** Likely `src/renderer/components/charts/EnhancedChart.tsx` or related React components
-- **Workaround:** Ctrl+R to reload the Electron window
-- **Status:** Backend fixes confirmed working. Frontend investigation needed.
+- **Root cause:** Multiple crash points identified:
+  1. Indicator calculations (VWAP, EMA) on sparse data without sufficient guards
+  2. Chart library operations (setData, update, createPriceLine) throwing exceptions
+  3. No error boundaries to catch and recover from React rendering errors
+  4. **lightweight-charts "Cannot update oldest data" error** - incremental `update()` called with timestamp older than chart's last data point (happens when cache refreshes with reordered data)
+- **Evidence:** Backend log shows candle requests continuing at 30s intervals for the last selected symbol, but no new symbol selections and no watchlist polls. Console shows `Error: Cannot update oldest data, last time=[object Object], new time=[object Object]`
+- **Files:**
+  - `src/renderer/components/charts/EnhancedChart.tsx` - Chart creation and data binding
+  - `src/renderer/components/charts/MultiChartGrid.tsx` - Primary chart rendering
+  - `src/renderer/components/ErrorBoundary.tsx` - New error boundary component
+- **Fix (multi-layer):**
+  1. **Defensive indicator calculations:** Added try-catch and minimum candle checks around VWAP, EMA9, EMA20, and pattern detection
+  2. **Error handling in chart effects:** Wrapped all three useEffect hooks (chart creation, data updates, price lines) in try-catch blocks
+  3. **React Error Boundary:** Added ErrorBoundary component wrapping EnhancedChart to catch and display errors without crashing the entire app
+  4. **Graceful degradation:** On error, shows error message with "Try Again" button instead of blank screen
+  5. **Timestamp tracking for incremental updates:** Track `lastTime` in addition to count/symbol. Only use `update()` when new candle time >= last known time; otherwise fall back to full `setData()`. Reset tracking on error to force clean reload.
+- **Verification:** Click on stocks with sparse data (e.g., IMSRW with 24 candles) → should render chart or show error message, never crash to blank screen. Console should show "Full setData" instead of crashing on timestamp mismatch.
 
 ## Debugging Checklist (Quick Reference)
 
@@ -222,10 +230,13 @@ The `asyncio.wait_for()` wrapper is production-grade defensive coding, but it ma
 - `backend/services/file_watcher.py` - Watchlist fetch from trader app, runners file watcher
 - `backend/services/quote_relay.py` - SocketIO relay to trader app for streaming
 - `backend/api/routes.py` - WebSocket endpoint `/ws/quotes`, REST endpoints
-- `backend/main.py` - Uvicorn server config
+- `backend/main.py` - Uvicorn server config, thread pool configuration
+- `backend/services/llm_validator.py` - LLM validation with timeout wrappers
 - `src/renderer/hooks/useStreamingQuotes.ts` - WebSocket client, candle builder, stale detection
 - `src/renderer/store/candleDataStore.ts` - Frontend candle data management
-- `src/renderer/components/charts/MultiChartGrid.tsx` - Primary chart rendering, error display
-- `src/renderer/components/charts/EnhancedChart.tsx` - Chart creation and data binding
+- `src/renderer/store/watchlistStore.ts` - Watchlist polling with axios timeout
+- `src/renderer/components/charts/MultiChartGrid.tsx` - Primary chart rendering, error boundary wrapper
+- `src/renderer/components/charts/EnhancedChart.tsx` - Chart creation and data binding with error handling
+- `src/renderer/components/ErrorBoundary.tsx` - React error boundary for crash recovery
 - `src/renderer/utils/debugLog.ts` - Debug logging toggle (`DEBUG_CHARTS`)
 - `logs/backend.log` - Backend runtime log
