@@ -56,7 +56,10 @@ async def _heartbeat_loop():
     while True:
         await asyncio.sleep(30)
         _heartbeat_count += 1
-        print(f"[HEARTBEAT] #{_heartbeat_count} - Event loop alive")
+        # Count pending tasks to detect task buildup
+        all_tasks = asyncio.all_tasks()
+        pending = len([t for t in all_tasks if not t.done()])
+        print(f"[HEARTBEAT] #{_heartbeat_count} - Event loop alive, {pending} tasks")
 
 
 @app.on_event("startup")

@@ -127,31 +127,33 @@ def _get_semaphore() -> asyncio.Semaphore:
 
 
 # Shared httpx client for connection reuse
+# NOTE: Client is created once at startup and reused. No lock needed for reads.
+# If client becomes closed, we recreate it inline (rare edge case).
 _shared_client: Optional[httpx.AsyncClient] = None
-_client_lock: Optional[asyncio.Lock] = None
 
 
-def _get_lock() -> asyncio.Lock:
-    """Lazy initialization of client lock"""
-    global _client_lock
-    if _client_lock is None:
-        _client_lock = asyncio.Lock()
-    return _client_lock
+def _create_httpx_client() -> httpx.AsyncClient:
+    """Create a new httpx client with proper settings"""
+    return httpx.AsyncClient(
+        timeout=httpx.Timeout(10.0, connect=5.0),
+        limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+        http2=False  # Disable HTTP/2 - can cause connection issues on Windows
+    )
 
 
 async def _get_client() -> httpx.AsyncClient:
-    """Get or create the shared httpx client"""
+    """Get the shared httpx client, creating if needed"""
     global _shared_client
 
-    # Use lock to prevent race conditions during client creation
-    async with _get_lock():
-        if _shared_client is None or _shared_client.is_closed:
-            _shared_client = httpx.AsyncClient(
-                timeout=httpx.Timeout(10.0, connect=5.0),
-                limits=httpx.Limits(max_connections=20, max_keepalive_connections=10)
-            )
-            _logger.info("Created new shared httpx client")
+    # Fast path: client exists and is open
+    if _shared_client is not None and not _shared_client.is_closed:
         return _shared_client
+
+    # Slow path: need to create client (rare - only at startup or after error)
+    # No lock needed - worst case we create two clients and one gets GC'd
+    _shared_client = _create_httpx_client()
+    _logger.info("Created new shared httpx client")
+    return _shared_client
 
 
 async def make_api_request(url: str, params: Dict, headers: Dict) -> Optional[httpx.Response]:

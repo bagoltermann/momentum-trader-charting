@@ -30,28 +30,30 @@ _watchlist_cache_time: float = 0
 _WATCHLIST_CACHE_TTL = 5.0  # seconds - fast enough for live trading
 
 # Async httpx client for non-blocking API calls
+# NOTE: No lock needed - worst case we create two clients and one gets GC'd
 _async_httpx_client: Optional[httpx.AsyncClient] = None
-_async_client_lock: Optional[asyncio.Lock] = None
 
 
-def _get_async_lock() -> asyncio.Lock:
-    """Lazy initialization of async client lock"""
-    global _async_client_lock
-    if _async_client_lock is None:
-        _async_client_lock = asyncio.Lock()
-    return _async_client_lock
+def _create_async_httpx_client() -> httpx.AsyncClient:
+    """Create a new async httpx client with proper settings"""
+    return httpx.AsyncClient(
+        timeout=httpx.Timeout(5.0, connect=3.0),
+        limits=httpx.Limits(max_connections=5, max_keepalive_connections=2),
+        http2=False  # Disable HTTP/2 - can cause connection issues on Windows
+    )
 
 
 async def _get_async_httpx_client() -> httpx.AsyncClient:
-    """Get or create the reusable async httpx client"""
+    """Get the async httpx client, creating if needed"""
     global _async_httpx_client
-    async with _get_async_lock():
-        if _async_httpx_client is None or _async_httpx_client.is_closed:
-            _async_httpx_client = httpx.AsyncClient(
-                timeout=httpx.Timeout(5.0, connect=3.0),
-                limits=httpx.Limits(max_connections=5, max_keepalive_connections=2)
-            )
+
+    # Fast path: client exists and is open
+    if _async_httpx_client is not None and not _async_httpx_client.is_closed:
         return _async_httpx_client
+
+    # Slow path: need to create client
+    _async_httpx_client = _create_async_httpx_client()
+    return _async_httpx_client
 
 
 class DataFileHandler(FileSystemEventHandler):
