@@ -42,6 +42,10 @@ interface EnhancedChartProps {
   supportResistanceLevels?: SupportResistanceLevel[]
   gapZones?: GapZone[]
   flagPennantPattern?: FlagPennantPattern | null
+  // Warrior trading metrics
+  gapPercent?: number        // Day 1 gap percentage from runner data
+  totalVolume?: number       // Sum of candle volumes (pre-market volume)
+  avgVolume?: number         // Average daily volume for ratio calculation
 }
 
 // Store series references for data updates
@@ -56,6 +60,13 @@ interface SeriesRefs {
   lower1: ISeriesApi<'Line'> | null
   lower2: ISeriesApi<'Line'> | null
   priceLines: IPriceLine[]
+}
+
+// Format volume for display (e.g., 1234567 -> "1.2M")
+function formatVolume(vol: number): string {
+  if (vol >= 1_000_000) return `${(vol / 1_000_000).toFixed(1)}M`
+  if (vol >= 1_000) return `${(vol / 1_000).toFixed(0)}K`
+  return vol.toString()
 }
 
 export function EnhancedChart({
@@ -75,6 +86,9 @@ export function EnhancedChart({
   supportResistanceLevels = [],
   gapZones = [],
   flagPennantPattern,
+  gapPercent,
+  totalVolume,
+  avgVolume,
 }: EnhancedChartProps) {
   debugLog(`[EnhancedChart] RENDER: symbol=${symbol}, candles=${candles.length}, rawCandles=${rawCandles.length}`)
 
@@ -436,17 +450,43 @@ export function EnhancedChart({
     })
     series.priceLines = []
 
-    // Add entry zone price lines
+    // Add entry zone price lines with D1 High proximity detection
+    const currentPrice = candles.length > 0 ? candles[candles.length - 1].close : null
+
     entryZones.forEach(zone => {
-      const color = zone.type === 'entry' ? '#00E676' :
-                    zone.type === 'stop' ? '#FF5252' : '#FFD600'
+      let color = zone.type === 'entry' ? '#00E676' :
+                  zone.type === 'stop' ? '#FF5252' : '#FFD600'
+      let lineWidth = 1
+      let lineStyle = 2 // dashed
+      let title = zone.label
+
+      // D1 High proximity detection - dynamic styling based on price distance
+      if (zone.label === 'D1 High' && currentPrice && zone.price > 0) {
+        const pctFromD1High = ((zone.price - currentPrice) / zone.price) * 100
+
+        if (pctFromD1High < 0) {
+          // BREAKOUT - price is ABOVE D1 High
+          color = '#00E676'
+          lineWidth = 3
+          lineStyle = 0 // solid
+          title = 'D1 High (BREAKOUT)'
+        } else if (pctFromD1High < 2) {
+          // APPROACHING - within 2% of D1 High
+          color = '#FFD600'
+          lineWidth = 2
+          lineStyle = 0 // solid
+          title = 'D1 High (approaching)'
+        }
+        // else: normal state - green dashed, width 1
+      }
+
       const line = series.candlestick!.createPriceLine({
         price: zone.price,
         color: color,
-        lineWidth: 1,
-        lineStyle: 2,
+        lineWidth: lineWidth,
+        lineStyle: lineStyle,
         axisLabelVisible: true,
-        title: zone.label,
+        title: title,
       })
       series.priceLines.push(line)
     })
@@ -577,7 +617,7 @@ export function EnhancedChart({
         title: `Target $${flagPennantPattern.targetPrice.toFixed(2)}`,
       }))
     }
-  }, [entryZones, riskReward, microPullback, supportResistanceLevels, gapZones, flagPennantPattern])
+  }, [entryZones, riskReward, microPullback, supportResistanceLevels, gapZones, flagPennantPattern, candles])
 
   // Calculate current VWAP distance for display
   const vwapDistance = useMemo(() => {
@@ -612,6 +652,16 @@ export function EnhancedChart({
         <div className="chart-header-left">
           <span className="symbol">{symbol}</span>
           <span className="timeframe">{timeframe}</span>
+          {gapPercent !== undefined && (
+            <span className={`gap-badge ${gapPercent >= 20 ? 'strong' : gapPercent >= 10 ? 'moderate' : 'weak'}`}>
+              {gapPercent >= 0 ? '+' : ''}{gapPercent.toFixed(1)}%
+            </span>
+          )}
+          {totalVolume !== undefined && totalVolume > 0 && (
+            <span className={`volume-badge ${avgVolume && avgVolume > 0 ? (totalVolume / avgVolume >= 2 ? 'strong' : totalVolume / avgVolume >= 1 ? 'moderate' : 'weak') : ''}`}>
+              {formatVolume(totalVolume)}{avgVolume && avgVolume > 0 ? ` (${(totalVolume / avgVolume).toFixed(1)}x)` : ''}
+            </span>
+          )}
         </div>
         <div className="chart-header-right">
           {microPullback && microPullback.detected && (

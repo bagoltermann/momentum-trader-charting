@@ -46,6 +46,79 @@ This document tracks feature enhancements - both implemented and planned.
 
 ## Recently Implemented ✅
 
+### Warrior Trading Chart Enhancements (v1.6.0) - Jan 2026
+**Status**: ✅ Complete
+**Source**: [session-notes/2026-01-28.md](session-notes/2026-01-28.md)
+
+**Problems Solved**:
+- No visibility into gap % during pre-market (key Warrior Trading metric)
+- No visibility into pre-market volume relative to average
+- D1 High breakout level not highlighted when price approaches it
+
+**Features**:
+1. **Gap % Badge** - Shows Day 1 gap percentage in chart header with color coding (green >= 20%, yellow 10-20%, gray < 10%)
+2. **Volume Badge** - Shows total pre-market volume with ratio to average (green >= 2x, yellow 1-2x, gray < 1x)
+3. **D1 High Breakout Alert** - Dynamic line styling based on price proximity:
+   - Normal (> 2% below): green dashed line
+   - Approaching (0-2% below): yellow solid line with "approaching" label
+   - Breakout (above): bright green solid line with "BREAKOUT" label
+
+**Files**:
+- `src/renderer/components/charts/EnhancedChart.tsx` - Badge rendering, D1 High proximity logic
+- `src/renderer/components/charts/MultiChartGrid.tsx` - Gap%, volume calculations
+- `src/renderer/styles/global.css` - Badge styling
+
+---
+
+### Streaming Relay Fallback + Stability Fixes - Jan 2026
+**Status**: ✅ Complete
+**Source**: [session-notes/2026-01-28.md](session-notes/2026-01-28.md)
+
+**Problems Solved**:
+- Charts go blank when trader app crashes (no fallback to REST polling)
+- Zero candle data from Schwab causes chart crash during pre-market
+- httpx requests hang indefinitely on rapid symbol switching
+
+**Features**:
+1. **Streaming disconnect fallback** - Backend sends status notifications, frontend falls back to REST polling within 60s of disconnect
+2. **Zero candle filtering** - Filters out placeholder candles with all-zero OHLC, shows "No trades yet" message
+3. **httpx timeout wrapper** - `asyncio.wait_for()` hard timeout (15s/10s) prevents indefinite hangs (band-aid - root cause unknown)
+
+**Files**:
+- `backend/services/quote_relay.py` - Status callbacks for connect/disconnect
+- `src/renderer/hooks/useStreamingQuotes.ts` - NEW - WebSocket client with stale detection
+- `src/renderer/hooks/useCandleData.ts` - Zero candle filtering
+- `backend/services/schwab_client.py` - asyncio.wait_for() wrappers
+
+---
+
+### Backend Async Fix + Process Cleanup - Jan 2026
+**Status**: ✅ Complete
+**Source**: [session-notes/2026-01-27.md](session-notes/2026-01-27.md)
+
+**Problems Solved**:
+- Backend froze over time due to synchronous LLM calls (60s timeout) blocking the async event loop
+- React validation timer fired every 5s instead of 60s due to dependency cascade
+- Zombie processes lingered after app exit, blocking restart
+- Unnecessary Schwab API calls for cached validations
+
+**Features**:
+1. **asyncio.to_thread() wrapping** - Offloads synchronous OllamaProvider calls to thread pool, keeping event loop responsive
+2. **Route-level cache short-circuit** - Checks LLM cache before fetching Schwab quotes, cached results return in ~200ms
+3. **React timer decoupling** - Separates cheap ranking refresh (runs on data change) from expensive LLM validation (fixed 60s timer using useRef)
+4. **Watchlist shallow equality** - Prevents unnecessary Zustand store updates when polled data hasn't changed
+5. **3-layer process cleanup** - Startup stale process check + atexit handler + port-based final sweep
+6. **Safe taskkill** - Changed from tree kill (/T) to PID-only kill to prevent killing trader app
+
+**Files**:
+- `backend/services/llm_validator.py` - asyncio.to_thread wrapping + get_cached_result()
+- `backend/api/routes.py` - Route-level cache + is_available() thread wrapping
+- `launcher.py` - 3-layer zombie process defense
+- `src/renderer/App.tsx` - Timer decoupling with useRef
+- `src/renderer/store/watchlistStore.ts` - Shallow equality check
+
+---
+
 ### Catalyst-Response Mismatch Detection (v1.5.0) - Jan 2026
 **Status**: ✅ Complete
 **Source**: Session 2026-01-26 - LLM Pattern Detection Analysis
@@ -579,24 +652,29 @@ Replay past trading sessions to review decisions.
 ## Infrastructure Enhancements
 
 ### Error Handling
-**Status**: NOT IMPLEMENTED
+**Status**: PARTIALLY IMPLEMENTED
 **Priority**: Medium
 
 **Features**:
 - [ ] Graceful handling when momentum-trader not running
 - [ ] Retry logic for API failures
-- [ ] Clear error messages in UI
-- [ ] Connection status indicator
+- [x] Clear error messages in UI (chart error overlay added Jan 2026)
+- [x] Connection status indicator (header shows connected/disconnected/error)
+- [x] Semaphore timeout prevents indefinite hangs (10s timeout, Jan 2026)
+- [x] Zombie process cleanup on startup and exit (3-layer defense, Jan 2026)
 
 ### Performance Optimization
-**Status**: NOT IMPLEMENTED
+**Status**: PARTIALLY IMPLEMENTED
 **Priority**: Low
 
 **Features**:
 - [ ] Lazy load charts (only render visible)
 - [ ] Throttle file watcher updates
-- [ ] Cache API responses
+- [x] Cache API responses (route-level LLM cache + watchlist TTL cache)
 - [ ] Virtualized lists for large watchlists
+- [x] asyncio.to_thread for blocking LLM calls (prevents event loop freeze, Jan 2026)
+- [x] React validation timer decoupled from watchlist polling (60s fixed timer, Jan 2026)
+- [x] Watchlist shallow equality check (prevents unnecessary re-renders, Jan 2026)
 
 ---
 
@@ -740,5 +818,5 @@ The `signal_events` table from v1.45.0 Signal Intelligence is collecting gate de
 
 ---
 
-**Last Updated**: 2026-01-26
+**Last Updated**: 2026-01-28
 **Maintain this file** as features are implemented and new ideas emerge

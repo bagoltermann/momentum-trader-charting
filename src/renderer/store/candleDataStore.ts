@@ -27,9 +27,15 @@ interface CandleDataState {
   primaryLoading: boolean
   primaryError: string | null
 
+  // Streaming state
+  streamingConnected: boolean
+  currentStreamCandle: CandleWithVolume | null
+
   // Actions
   setPrimarySymbol: (symbol: string | null) => void
   fetchPrimaryCandles: (symbol: string, retryCount?: number) => Promise<void>
+  setStreamingConnected: (connected: boolean) => void
+  updateStreamCandle: (candle: CandleWithVolume) => void
 }
 
 // Track pending request to cancel it when symbol changes
@@ -43,6 +49,8 @@ export const useCandleDataStore = create<CandleDataState>((set, get) => ({
   primaryRaw: [],
   primaryLoading: false,
   primaryError: null,
+  streamingConnected: false,
+  currentStreamCandle: null,
 
   setPrimarySymbol: (symbol: string | null) => {
     const current = get().primarySymbol
@@ -131,17 +139,31 @@ export const useCandleDataStore = create<CandleDataState>((set, get) => ({
       }
 
       // Single-pass transform: produce both arrays in one loop
+      // Filter out invalid candles (all zeros - common in pre-market placeholder data)
       const transformed: CandleWithVolume[] = []
       const raw: Candle[] = []
       for (const c of response.data) {
+        // Skip candles where OHLC are all zero (invalid/placeholder data)
+        if (c.open === 0 && c.high === 0 && c.low === 0 && c.close === 0) {
+          log(`[CandleStore] Skipping zero candle at ${c.timestamp}`)
+          continue
+        }
         const time = Math.floor(c.timestamp / 1000)
         const vol = c.volume || 0
         transformed.push({ time: time as number, open: c.open, high: c.high, low: c.low, close: c.close, volume: vol })
         raw.push({ time, open: c.open, high: c.high, low: c.low, close: c.close, volume: vol })
       }
 
+      // Handle case where all candles were filtered out (all zeros)
+      // This happens when a stock has no pre-market trades yet
+      if (transformed.length === 0) {
+        log(`[CandleStore] #${reqId} WARNING: All candles filtered (zeros) for ${symbol}`)
+        set({ primaryCandles: [], primaryRaw: [], primaryLoading: false, primaryError: 'No trades yet' })
+        return
+      }
+
       log(`[CandleStore] #${reqId} Setting ${transformed.length} candles to store for ${symbol}`)
-      set({ primaryCandles: transformed, primaryRaw: raw, primaryLoading: false })
+      set({ primaryCandles: transformed, primaryRaw: raw, primaryLoading: false, primaryError: null })
       if (pendingController === controller) {
         pendingController = null
       }
@@ -174,6 +196,48 @@ export const useCandleDataStore = create<CandleDataState>((set, get) => ({
       }
     }
   },
+
+  setStreamingConnected: (connected: boolean) => {
+    set({ streamingConnected: connected })
+  },
+
+  updateStreamCandle: (candle: CandleWithVolume) => {
+    const { primaryCandles, primaryRaw } = get()
+    if (primaryCandles.length === 0) return
+
+    const lastCandle = primaryCandles[primaryCandles.length - 1]
+
+    if (lastCandle.time === candle.time) {
+      // Same minute — update last candle in place
+      const updatedCandles = [...primaryCandles]
+      updatedCandles[updatedCandles.length - 1] = candle
+      const updatedRaw = [...primaryRaw]
+      updatedRaw[updatedRaw.length - 1] = {
+        time: candle.time as number,
+        open: candle.open as number,
+        high: candle.high as number,
+        low: candle.low as number,
+        close: candle.close as number,
+        volume: candle.volume
+      }
+      set({ primaryCandles: updatedCandles, primaryRaw: updatedRaw, currentStreamCandle: candle })
+    } else if ((candle.time as number) > (lastCandle.time as number)) {
+      // New minute — append candle
+      const rawCandle: Candle = {
+        time: candle.time as number,
+        open: candle.open as number,
+        high: candle.high as number,
+        low: candle.low as number,
+        close: candle.close as number,
+        volume: candle.volume
+      }
+      set({
+        primaryCandles: [...primaryCandles, candle],
+        primaryRaw: [...primaryRaw, rawCandle],
+        currentStreamCandle: candle
+      })
+    }
+  },
 }))
 
 // Auto-refresh interval
@@ -183,7 +247,9 @@ export function startCandleRefresh() {
   if (refreshInterval) return
 
   refreshInterval = setInterval(() => {
-    const { primarySymbol, primaryLoading, fetchPrimaryCandles } = useCandleDataStore.getState()
+    const { primarySymbol, primaryLoading, streamingConnected, fetchPrimaryCandles } = useCandleDataStore.getState()
+    // Skip REST polling when streaming is providing real-time data
+    if (streamingConnected) return
     // Only refresh if we have a symbol and no request is currently in progress
     if (primarySymbol && !primaryLoading && !pendingController) {
       log(`[CandleStore] Auto-refresh for ${primarySymbol}`)

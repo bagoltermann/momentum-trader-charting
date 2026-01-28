@@ -11,6 +11,7 @@ import time
 import platform
 import signal
 import os
+import atexit
 import logging
 from pathlib import Path
 from urllib.request import urlopen
@@ -85,6 +86,36 @@ class ChartingLauncher:
         if not self.python_exe.exists():
             self.python_exe = sys.executable
             log(f"[!] Virtual environment not found, using system Python: {self.python_exe}")
+
+    def cleanup_stale_processes(self):
+        """Kill any stale processes from a previous run that didn't exit cleanly"""
+        if self.platform != 'Windows':
+            return
+
+        charting_ports = [8081, 5173]
+        for port in charting_ports:
+            try:
+                result = subprocess.run(
+                    ['netstat', '-ano'],
+                    capture_output=True, text=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                )
+                for line in result.stdout.splitlines():
+                    if f':{port}' in line and 'LISTENING' in line:
+                        parts = line.split()
+                        pid = int(parts[-1])
+                        if pid == 0:
+                            continue
+                        log(f"[!] Found stale process on port {port} (PID {pid}), killing...")
+                        subprocess.run(
+                            ['taskkill', '/F', '/PID', str(pid)],
+                            capture_output=True,
+                            creationflags=subprocess.CREATE_NO_WINDOW
+                        )
+                        log(f"[OK] Killed stale PID {pid}")
+                        time.sleep(0.5)  # Let port release
+            except Exception as e:
+                log(f"[!] Error cleaning stale processes on port {port}: {e}")
 
     def check_requirements(self):
         """Check if required files exist"""
@@ -327,77 +358,72 @@ class ChartingLauncher:
 
     def cleanup(self):
         """Clean up and terminate all processes"""
+        # Guard against double-cleanup (atexit + explicit call)
+        if getattr(self, '_cleaned_up', False):
+            return
+        self._cleaned_up = True
+
         log("Cleaning up processes...")
 
         # Try to shutdown backend gracefully via API
         self.shutdown_backend()
 
-        # Terminate Electron process
-        if self.electron_process and self.electron_process.poll() is None:
-            try:
-                if self.platform == 'Windows':
-                    # On Windows, terminate the process tree
-                    subprocess.run(
-                        ['taskkill', '/F', '/T', '/PID', str(self.electron_process.pid)],
-                        capture_output=True,
-                        creationflags=subprocess.CREATE_NO_WINDOW
-                    )
-                else:
-                    self.electron_process.terminate()
-                    try:
-                        self.electron_process.wait(timeout=3)
-                    except subprocess.TimeoutExpired:
-                        self.electron_process.kill()
-                log("[OK] Electron stopped")
-            except Exception as e:
-                log(f"[!] Error stopping Electron: {e}")
+        # Kill processes by PID (not /T tree kill, which can kill unrelated processes)
+        for name, proc in [
+            ('Electron', self.electron_process),
+            ('Vite', self.vite_process),
+            ('Backend', self.backend_process),
+        ]:
+            if proc and proc.poll() is None:
+                try:
+                    if self.platform == 'Windows':
+                        subprocess.run(
+                            ['taskkill', '/F', '/PID', str(proc.pid)],
+                            capture_output=True,
+                            creationflags=subprocess.CREATE_NO_WINDOW
+                        )
+                    else:
+                        proc.terminate()
+                        try:
+                            proc.wait(timeout=3)
+                        except subprocess.TimeoutExpired:
+                            proc.kill()
+                    log(f"[OK] {name} stopped (PID {proc.pid})")
+                except Exception as e:
+                    log(f"[!] Error stopping {name}: {e}")
 
-        # Terminate Vite process
-        if self.vite_process and self.vite_process.poll() is None:
-            try:
-                if self.platform == 'Windows':
-                    subprocess.run(
-                        ['taskkill', '/F', '/T', '/PID', str(self.vite_process.pid)],
-                        capture_output=True,
-                        creationflags=subprocess.CREATE_NO_WINDOW
-                    )
-                else:
-                    self.vite_process.terminate()
-                    try:
-                        self.vite_process.wait(timeout=3)
-                    except subprocess.TimeoutExpired:
-                        self.vite_process.kill()
-                log("[OK] Vite stopped")
-            except Exception as e:
-                log(f"[!] Error stopping Vite: {e}")
-
-        # Terminate backend process
-        if self.backend_process and self.backend_process.poll() is None:
-            try:
-                if self.platform == 'Windows':
-                    # On Windows, use taskkill to kill the entire process tree
-                    # This ensures all uvicorn workers are also terminated
-                    subprocess.run(
-                        ['taskkill', '/F', '/T', '/PID', str(self.backend_process.pid)],
-                        capture_output=True,
-                        creationflags=subprocess.CREATE_NO_WINDOW
-                    )
-                    log("[OK] Backend stopped")
-                else:
-                    self.backend_process.send_signal(signal.SIGTERM)
-                    try:
-                        self.backend_process.wait(timeout=5)
-                        log("[OK] Backend stopped gracefully")
-                    except subprocess.TimeoutExpired:
-                        self.backend_process.kill()
-                        log("[OK] Backend stopped (forced)")
-            except Exception as e:
-                log(f"[!] Error stopping backend: {e}")
+        # Final safety: kill anything still on our ports
+        if self.platform == 'Windows':
+            self._kill_port_holders([8081, 5173])
 
         log("")
         log("=" * 60)
         log("Momentum Trader Charts stopped")
         log("=" * 60)
+
+    def _kill_port_holders(self, ports):
+        """Last-resort: kill any process still holding our ports"""
+        try:
+            result = subprocess.run(
+                ['netstat', '-ano'],
+                capture_output=True, text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
+            for port in ports:
+                for line in result.stdout.splitlines():
+                    if f':{port}' in line and 'LISTENING' in line:
+                        parts = line.split()
+                        pid = int(parts[-1])
+                        if pid == 0:
+                            continue
+                        log(f"[!] Port {port} still held by PID {pid}, force killing...")
+                        subprocess.run(
+                            ['taskkill', '/F', '/PID', str(pid)],
+                            capture_output=True,
+                            creationflags=subprocess.CREATE_NO_WINDOW
+                        )
+        except Exception as e:
+            log(f"[!] Error in port cleanup: {e}")
 
     def run(self):
         """Main launcher workflow"""
@@ -407,6 +433,9 @@ class ChartingLauncher:
         # Setup logging first (for headless operation)
         setup_logging(self.base_dir)
 
+        # Register atexit handler so cleanup runs even on abnormal exit
+        atexit.register(self.cleanup)
+
         # Setup signal handlers
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
@@ -414,6 +443,9 @@ class ChartingLauncher:
         # Check requirements
         if not self.check_requirements():
             return 1
+
+        # Kill any stale processes from previous run
+        self.cleanup_stale_processes()
 
         # Start backend
         if not self.start_backend():

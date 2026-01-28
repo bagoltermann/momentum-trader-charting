@@ -12,6 +12,7 @@ import yaml
 import logging
 import json
 import re
+import asyncio
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, asdict
@@ -213,11 +214,14 @@ class LLMValidator:
                 _logger.debug(f"Cache hit for {symbol}")
                 return cached
 
-        # Build context from all available data
-        context = self._build_context(symbol, watchlist, runners, quote, candles)
+        # Build context from all available data (CPU-intensive, run in thread to avoid blocking event loop)
+        context = await asyncio.to_thread(
+            self._build_context, symbol, watchlist, runners, quote, candles
+        )
 
-        # Check if LLM is available
-        if not self.is_available():
+        # Check if LLM is available (calls requests.get() with 2s timeout, run in thread)
+        available = await asyncio.to_thread(self.is_available)
+        if not available:
             _logger.warning(f"LLM not available, using fallback for {symbol}")
             return self._get_fallback_result(symbol, context)
 
@@ -234,8 +238,10 @@ class LLMValidator:
 
         for attempt in range(max_retries + 1):
             try:
-                # Call LLM with enhanced JSON extraction
-                result = self._call_llm_with_json_extraction(symbol, user_prompt, system_prompt)
+                # Call LLM with enhanced JSON extraction (sync requests.post with 60s timeout, run in thread)
+                result = await asyncio.to_thread(
+                    self._call_llm_with_json_extraction, symbol, user_prompt, system_prompt
+                )
 
                 if result['success']:
                     validation = self._parse_llm_response(symbol, result['content'])
@@ -987,6 +993,10 @@ Consider BUY if other conditions support entry."""
             symbol=symbol,
             cached=False,
         )
+
+    def get_cached_result(self, symbol: str) -> Optional[ValidationResult]:
+        """Check if a cached validation result exists for the symbol"""
+        return self._cache.get(symbol)
 
     def clear_cache(self, symbol: Optional[str] = None):
         """Clear validation cache"""

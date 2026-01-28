@@ -96,13 +96,29 @@ export function useCandleData(symbol: string | null, timeframe: string): UseCand
         debugLog(`[useCandleData] Got ${response.data.length} candles for ${symbol}`)
 
         // Single-pass transform: produce both arrays in one loop
+        // Filter out invalid candles (all zeros - common in pre-market placeholder data)
         const transformed: CandleWithVolume[] = []
         const raw: Candle[] = []
         for (const c of response.data) {
+          // Skip candles where OHLC are all zero (invalid/placeholder data)
+          if (c.open === 0 && c.high === 0 && c.low === 0 && c.close === 0) {
+            debugLog(`[useCandleData] Skipping zero candle at ${c.timestamp}`)
+            continue
+          }
           const time = Math.floor(c.timestamp / 1000)
           const vol = c.volume || 0
           transformed.push({ time: time as number, open: c.open, high: c.high, low: c.low, close: c.close, volume: vol })
           raw.push({ time, open: c.open, high: c.high, low: c.low, close: c.close, volume: vol })
+        }
+
+        // Handle case where all candles were filtered out (all zeros)
+        // This happens when a stock has no pre-market trades yet
+        if (transformed.length === 0 && response.data.length > 0) {
+          debugLog(`[useCandleData] All candles filtered (zeros) for ${symbol}`)
+          if (mountedRef.current) {
+            setError('No trades yet')
+          }
+          return
         }
 
         // Cache the result

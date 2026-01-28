@@ -1,5 +1,5 @@
 """API routes for charting app backend"""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from typing import Optional
 from pathlib import Path
 import json
@@ -20,6 +20,15 @@ _request_count = 0
 
 # Lazy-initialized Schwab client
 _schwab_client: Optional[ChartSchwabClient] = None
+
+# Quote relay reference (set by main.py)
+_quote_relay = None
+
+
+def set_quote_relay(relay):
+    """Set the quote relay instance (called from main.py)"""
+    global _quote_relay
+    _quote_relay = relay
 
 
 def get_schwab_client() -> ChartSchwabClient:
@@ -176,9 +185,17 @@ async def validate_signal(symbol: str):
     if not any(s.get('symbol') == symbol for s in watchlist):
         raise HTTPException(status_code=400, detail=f"Symbol {symbol} not in watchlist")
 
+    # Check LLM cache BEFORE fetching Schwab quote -- avoids unnecessary API calls
+    config = load_config()
+    validator = get_validator(config)
+    cached_result = validator.get_cached_result(symbol)
+    if cached_result is not None:
+        _logger.info(f"POST /validate/{symbol} served from cache")
+        return cached_result.to_dict()
+
     runners = get_cached_runners() or {}
 
-    # Get real-time quote
+    # Get real-time quote (only when cache missed and we need to run LLM)
     client = get_schwab_client()
     try:
         quote = await client.get_quote(symbol)
@@ -203,10 +220,6 @@ async def validate_signal(symbol: str):
             _logger.warning(f"Failed to get candles for {symbol}: {e}")
             candles = None
 
-    # Get validator and validate
-    config = load_config()
-    validator = get_validator(config)
-
     try:
         result = await validator.validate_signal(
             symbol=symbol,
@@ -229,7 +242,88 @@ async def validation_status():
     """Check if LLM validation is available"""
     config = load_config()
     validator = get_validator(config)
+    available = await asyncio.to_thread(validator.is_available)
     return {
-        "available": validator.is_available(),
+        "available": available,
         "cache_ttl_seconds": 60
     }
+
+
+# ==================== Real-Time Streaming ====================
+
+
+@router.websocket("/ws/quotes")
+async def ws_quotes(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time quote streaming.
+
+    Relays quote_update events from trader app (via QuoteRelay)
+    to the Electron frontend. Frontend sends subscribe/unsubscribe
+    messages to control which symbols are streamed.
+
+    Also relays connection status changes so frontend can fall back
+    to REST polling when trader app disconnects.
+    """
+    await websocket.accept()
+
+    if not _quote_relay:
+        await websocket.close(code=1013, reason="Quote relay not available")
+        return
+
+    queue: asyncio.Queue = asyncio.Queue()
+
+    def on_quote(data):
+        queue.put_nowait(data)
+
+    def on_status(data):
+        queue.put_nowait(data)
+
+    _quote_relay.add_callback(on_quote)
+    _quote_relay.add_status_callback(on_status)
+    try:
+        receive_task = asyncio.create_task(_ws_receive_loop(websocket))
+        send_task = asyncio.create_task(_ws_send_loop(websocket, queue))
+        done, pending = await asyncio.wait(
+            [receive_task, send_task], return_when=asyncio.FIRST_COMPLETED
+        )
+        for task in pending:
+            task.cancel()
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        _logger.error(f"[WS-QUOTES] Error: {e}")
+    finally:
+        _quote_relay.remove_callback(on_quote)
+        _quote_relay.remove_status_callback(on_status)
+
+
+async def _ws_receive_loop(websocket: WebSocket):
+    """Handle frontend → backend messages (subscribe/unsubscribe)"""
+    try:
+        while True:
+            msg = await websocket.receive_json()
+            action = msg.get('action')
+            if action == 'subscribe' and 'symbols' in msg:
+                _quote_relay.subscribe(msg['symbols'])
+                _logger.info(f"[WS-QUOTES] Subscribe: {msg['symbols']}")
+            elif action == 'unsubscribe' and 'symbols' in msg:
+                _quote_relay.unsubscribe(msg['symbols'])
+                _logger.info(f"[WS-QUOTES] Unsubscribe: {msg['symbols']}")
+    except WebSocketDisconnect:
+        # Normal disconnect when frontend changes symbol or closes
+        pass
+
+
+async def _ws_send_loop(websocket: WebSocket, queue: asyncio.Queue):
+    """Send quote updates from QuoteRelay to frontend"""
+    while True:
+        data = await queue.get()
+        await websocket.send_json(data)
+
+
+@router.get("/streaming/status")
+async def streaming_status():
+    """Get quote streaming relay status"""
+    if _quote_relay:
+        return _quote_relay.get_stats()
+    return {"connected": False, "message": "Quote relay not initialized"}

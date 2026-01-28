@@ -4,6 +4,7 @@ import { useCandleData } from '../../hooks/useCandleData'
 import { Runner } from '../../hooks/useRunners'
 import { usePatternOverlayStore } from '../../store/patternOverlayStore'
 import { useCandleDataStore, startCandleRefresh } from '../../store/candleDataStore'
+import { useStreamingQuotes } from '../../hooks/useStreamingQuotes'
 import { detectSupportResistance, detectGaps, detectFlagPennant } from '../../utils/indicators'
 import { debugLog } from '../../utils/debugLog'
 
@@ -85,15 +86,19 @@ function getRiskRewardForSymbol(symbol: string | null, runners: Runner[]): RiskR
 export function MultiChartGrid({ primarySymbol, secondarySymbols, runners }: MultiChartGridProps) {
   debugLog(`[MultiChartGrid] Rendering: primarySymbol=${primarySymbol}, secondarySymbols=[${secondarySymbols.join(',')}]`)
 
+  // Real-time streaming from trader app (pauses REST polling when connected)
+  useStreamingQuotes(primarySymbol)
+
   // Use shared store for primary candle data
   const {
     primaryCandles,
     primaryRaw,
     primaryLoading: loading,
+    primaryError,
     setPrimarySymbol
   } = useCandleDataStore()
 
-  debugLog(`[MultiChartGrid] Store state: candles=${primaryCandles.length}, raw=${primaryRaw.length}, loading=${loading}`)
+  debugLog(`[MultiChartGrid] Store state: candles=${primaryCandles.length}, raw=${primaryRaw.length}, loading=${loading}, error=${primaryError}`)
 
   // Update store when symbol changes
   useEffect(() => {
@@ -133,6 +138,26 @@ export function MultiChartGrid({ primarySymbol, secondarySymbols, runners }: Mul
     return detectFlagPennant(primaryRaw)
   }, [primaryRaw, showFlagPennant])
 
+  // Get gap percent from runner data (Warrior trading metric)
+  const primaryGapPercent = useMemo(() => {
+    if (!primarySymbol) return undefined
+    const runner = runners.find(r => r.symbol === primarySymbol)
+    return runner?.original_gap_percent
+  }, [primarySymbol, runners])
+
+  // Calculate total volume from candles (pre-market volume)
+  const primaryTotalVolume = useMemo(() => {
+    if (primaryCandles.length === 0) return undefined
+    return primaryCandles.reduce((sum, c) => sum + (c.volume || 0), 0)
+  }, [primaryCandles])
+
+  // Get average volume from runner data (day1_volume as proxy)
+  const primaryAvgVolume = useMemo(() => {
+    if (!primarySymbol) return undefined
+    const runner = runners.find(r => r.symbol === primarySymbol)
+    return runner?.day1_volume
+  }, [primarySymbol, runners])
+
   // Log right before render
   debugLog(`[MultiChartGrid] About to render: primarySymbol=${primarySymbol}, candles=${primaryCandles.length}, will render EnhancedChart=${!!primarySymbol}`)
 
@@ -144,6 +169,11 @@ export function MultiChartGrid({ primarySymbol, secondarySymbols, runners }: Mul
             {loading && primaryCandles.length === 0 && (
               <div className="chart-loading-overlay">
                 Loading {primarySymbol}...
+              </div>
+            )}
+            {!loading && primaryCandles.length === 0 && primaryError && (
+              <div className="chart-loading-overlay" style={{ color: '#FF5252' }}>
+                {primarySymbol}: {primaryError}
               </div>
             )}
             <EnhancedChart
@@ -163,6 +193,9 @@ export function MultiChartGrid({ primarySymbol, secondarySymbols, runners }: Mul
               supportResistanceLevels={supportResistanceLevels}
               gapZones={gapZones}
               flagPennantPattern={flagPennantPattern}
+              gapPercent={primaryGapPercent}
+              totalVolume={primaryTotalVolume}
+              avgVolume={primaryAvgVolume}
             />
           </>
         ) : (
@@ -182,8 +215,8 @@ export function MultiChartGrid({ primarySymbol, secondarySymbols, runners }: Mul
 
 function SecondaryChart({ symbol, runners }: { symbol: string; runners: Runner[] }) {
   debugLog(`[SecondaryChart] Rendering: symbol=${symbol}`)
-  const { candles, rawCandles } = useCandleData(symbol, '5m')
-  debugLog(`[SecondaryChart] Got data for ${symbol}: ${candles.length} candles`)
+  const { candles, rawCandles, error } = useCandleData(symbol, '5m')
+  debugLog(`[SecondaryChart] Got data for ${symbol}: ${candles.length} candles, error=${error}`)
 
   const entryZones = useMemo(() =>
     getEntryZonesForSymbol(symbol, runners),
@@ -192,19 +225,26 @@ function SecondaryChart({ symbol, runners }: { symbol: string; runners: Runner[]
 
   return (
     <div className="secondary-chart">
-      <EnhancedChart
-        symbol={symbol}
-        timeframe="5m"
-        candles={candles}
-        rawCandles={rawCandles}
-        height={200}
-        showVWAP={true}
-        showVWAPBands={false}
-        showVolume={false}
-        showEMA9={false}
-        showEMA20={false}
-        entryZones={entryZones}
-      />
+      {error && candles.length === 0 ? (
+        <div className="chart-error-overlay">
+          <span className="symbol-label">{symbol}</span>
+          <span className="error-text">{error}</span>
+        </div>
+      ) : (
+        <EnhancedChart
+          symbol={symbol}
+          timeframe="5m"
+          candles={candles}
+          rawCandles={rawCandles}
+          height={200}
+          showVWAP={true}
+          showVWAPBands={false}
+          showVolume={false}
+          showEMA9={false}
+          showEMA20={false}
+          entryZones={entryZones}
+        />
+      )}
     </div>
   )
 }

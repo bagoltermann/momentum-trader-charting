@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useCallback } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { Header } from './components/layout/Header'
 import { Sidebar } from './components/layout/Sidebar'
 import { MultiChartGrid } from './components/charts/MultiChartGrid'
@@ -42,13 +42,18 @@ function App() {
     return data
   }, [runners])
 
-  // Memoize the refresh callback to avoid unnecessary re-renders
-  const doRefreshAndValidate = useCallback(() => {
+  // Refs to hold latest values for the stable 60s timer (without triggering effect re-runs)
+  const watchlistRef = useRef(watchlist)
+  const runnersDataRef = useRef(runnersData)
+  useEffect(() => { watchlistRef.current = watchlist }, [watchlist])
+  useEffect(() => { runnersDataRef.current = runnersData }, [runnersData])
+
+  // Ranking refresh -- runs when watchlist/runners change (cheap, local array sorting)
+  useEffect(() => {
     if (watchlist.length > 0) {
       refreshTopCandidates(watchlist, runnersData)
-      validateTop3()
     }
-  }, [watchlist, runnersData, refreshTopCandidates, validateTop3])
+  }, [watchlist, runnersData, refreshTopCandidates])
 
   useEffect(() => {
     // Initial fetch
@@ -67,15 +72,30 @@ function App() {
     return () => clearInterval(interval)
   }, [checkLlmStatus])
 
-  // Auto-validate top 3 every 60 seconds
+  // LLM validation -- stable 60s timer, NOT tied to watchlist changes
   useEffect(() => {
-    // Initial refresh when watchlist loads
-    doRefreshAndValidate()
+    // Initial validation after short delay (let watchlist load first)
+    const initialTimeout = setTimeout(() => {
+      if (watchlistRef.current.length > 0) {
+        refreshTopCandidates(watchlistRef.current, runnersDataRef.current)
+        validateTop3()
+      }
+    }, 2000)
 
-    // Re-evaluate top 3 every 60 seconds
-    const interval = setInterval(doRefreshAndValidate, 60000)
-    return () => clearInterval(interval)
-  }, [doRefreshAndValidate])
+    // Stable 60s interval -- uses refs so the timer is never reset by watchlist changes
+    const interval = setInterval(() => {
+      if (watchlistRef.current.length > 0) {
+        refreshTopCandidates(watchlistRef.current, runnersDataRef.current)
+        validateTop3()
+      }
+    }, 60000)
+
+    return () => {
+      clearTimeout(initialTimeout)
+      clearInterval(interval)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <div className="app-container">

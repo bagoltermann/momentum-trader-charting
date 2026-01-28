@@ -19,9 +19,10 @@ if platform.system() == 'Windows':
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-from api.routes import router, get_schwab_client
+from api.routes import router, get_schwab_client, set_quote_relay
 from services.file_watcher import start_file_watchers, stop_file_watchers
 from services.schwab_client import close_shared_client
+from services.quote_relay import QuoteRelay
 from core.config import load_config
 
 app = FastAPI(title="Momentum Trader Charts Backend")
@@ -38,21 +39,36 @@ app.add_middleware(
 app.include_router(router, prefix="/api")
 
 
+quote_relay = None
+
+
 @app.on_event("startup")
 async def startup_event():
-    """Initialize file watchers and connections"""
+    """Initialize file watchers, connections, and quote relay"""
+    global quote_relay
     config = load_config()
     data_dir = config['data_sources']['momentum_trader']['data_dir']
     trader_api_url = config['data_sources']['momentum_trader'].get('api_url', 'http://localhost:8080')
 
     start_file_watchers(data_dir, trader_api_url)
+
+    # Start quote relay to trader app for real-time streaming
+    streaming_config = config.get('streaming', {})
+    if streaming_config.get('enabled', True):
+        quote_relay = QuoteRelay(trader_api_url)
+        set_quote_relay(quote_relay)
+        quote_relay.start()
+        print("[OK] Quote relay started")
+
     print("[OK] Charting backend started on port 8081")
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """Clean up file watchers and Schwab client on shutdown"""
+    """Clean up file watchers, Schwab client, and quote relay on shutdown"""
     stop_file_watchers()
+    if quote_relay:
+        quote_relay.stop()
     # Close the shared httpx client
     await close_shared_client()
     print("[OK] Charting backend shutdown complete")

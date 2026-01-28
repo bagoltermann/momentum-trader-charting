@@ -264,7 +264,14 @@ class ChartSchwabClient:
         _logger.info(f"get_price_history({symbol}) waiting for semaphore")
 
         # Limit concurrent API calls to prevent connection pool exhaustion
-        async with _get_semaphore():
+        # Timeout after 10s to prevent indefinite blocking (semaphore starvation)
+        try:
+            await asyncio.wait_for(_get_semaphore().acquire(), timeout=10.0)
+        except asyncio.TimeoutError:
+            _logger.warning(f"get_price_history({symbol}) semaphore timeout after 10s - all slots busy")
+            return None
+
+        try:
             _logger.info(f"get_price_history({symbol}) acquired semaphore, starting request")
 
             # Retry with exponential backoff (like momentum-trader)
@@ -295,14 +302,17 @@ class ChartSchwabClient:
                         params['periodType'] = period_type
                         params['period'] = period
 
-                    # Use aiohttp for stable Windows performance
-                    response = await make_api_request(
-                        f"{self.BASE_URL}/pricehistory",
-                        params=params,
-                        headers={
-                            'Authorization': f'Bearer {access_token}',
-                            'Accept': 'application/json'
-                        }
+                    # Use httpx with hard timeout wrapper to prevent indefinite hangs
+                    response = await asyncio.wait_for(
+                        make_api_request(
+                            f"{self.BASE_URL}/pricehistory",
+                            params=params,
+                            headers={
+                                'Authorization': f'Bearer {access_token}',
+                                'Accept': 'application/json'
+                            }
+                        ),
+                        timeout=15.0  # Hard timeout - will raise asyncio.TimeoutError if exceeded
                     )
 
                     # Handle rate limiting (429) with retry
@@ -374,6 +384,8 @@ class ChartSchwabClient:
 
             # All retries exhausted
             return None
+        finally:
+            _get_semaphore().release()
 
     async def get_quote(self, symbol: str) -> Optional[Dict]:
         """Get real-time quote using aiohttp with circuit breaker"""
@@ -385,14 +397,17 @@ class ChartSchwabClient:
         try:
             access_token = self._get_access_token()
 
-            # Use aiohttp for stable Windows performance
-            response = await make_api_request(
-                f"{self.BASE_URL}/{symbol}/quotes",
-                params={},
-                headers={
-                    'Authorization': f'Bearer {access_token}',
-                    'Accept': 'application/json'
-                }
+            # Use httpx with hard timeout wrapper to prevent indefinite hangs
+            response = await asyncio.wait_for(
+                make_api_request(
+                    f"{self.BASE_URL}/{symbol}/quotes",
+                    params={},
+                    headers={
+                        'Authorization': f'Bearer {access_token}',
+                        'Accept': 'application/json'
+                    }
+                ),
+                timeout=10.0  # Hard timeout for quotes
             )
 
             if response.status_code != 200:

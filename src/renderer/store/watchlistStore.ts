@@ -28,7 +28,18 @@ interface WatchlistState {
   fetchWatchlist: () => Promise<void>
 }
 
-export const useWatchlistStore = create<WatchlistState>((set) => ({
+// Check if watchlist data actually changed (avoids unnecessary re-renders on every 5s poll)
+function watchlistChanged(current: WatchlistItem[], incoming: WatchlistItem[]): boolean {
+  if (current.length !== incoming.length) return true
+  for (let i = 0; i < incoming.length; i++) {
+    if (incoming[i].symbol !== current[i]?.symbol || incoming[i].price !== current[i]?.price) {
+      return true
+    }
+  }
+  return false
+}
+
+export const useWatchlistStore = create<WatchlistState>((set, get) => ({
   watchlist: [],
   connectionStatus: 'disconnected',
   lastUpdate: null,
@@ -37,20 +48,22 @@ export const useWatchlistStore = create<WatchlistState>((set) => ({
     try {
       // Try backend first (file watcher)
       const response = await axios.get('http://localhost:8081/api/watchlist')
-      set({
-        watchlist: response.data,
-        connectionStatus: 'connected',
-        lastUpdate: new Date(),
-      })
+      const incoming = response.data as WatchlistItem[]
+      if (watchlistChanged(get().watchlist, incoming)) {
+        set({ watchlist: incoming, connectionStatus: 'connected', lastUpdate: new Date() })
+      } else {
+        set({ connectionStatus: 'connected', lastUpdate: new Date() })
+      }
     } catch {
       // Fallback to main app API
       try {
         const response = await axios.get('http://localhost:8080/api/watchlist')
-        set({
-          watchlist: response.data,
-          connectionStatus: 'connected',
-          lastUpdate: new Date(),
-        })
+        const incoming = response.data as WatchlistItem[]
+        if (watchlistChanged(get().watchlist, incoming)) {
+          set({ watchlist: incoming, connectionStatus: 'connected', lastUpdate: new Date() })
+        } else {
+          set({ connectionStatus: 'connected', lastUpdate: new Date() })
+        }
       } catch {
         set({ connectionStatus: 'error' })
       }
