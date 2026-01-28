@@ -176,8 +176,8 @@ async def validate_signal(symbol: str):
     """
     _logger.info(f"POST /validate/{symbol} started")
 
-    # Get context data
-    watchlist = get_cached_watchlist()
+    # Get context data (use async version to avoid blocking event loop)
+    watchlist = await get_cached_watchlist_async()
     if watchlist is None:
         raise HTTPException(status_code=503, detail="Watchlist not available")
 
