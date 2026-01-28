@@ -47,6 +47,16 @@ app.include_router(router, prefix="/api")
 
 
 quote_relay = None
+_heartbeat_count = 0
+
+
+async def _heartbeat_loop():
+    """Log heartbeat every 30s to detect event loop blocking"""
+    global _heartbeat_count
+    while True:
+        await asyncio.sleep(30)
+        _heartbeat_count += 1
+        print(f"[HEARTBEAT] #{_heartbeat_count} - Event loop alive")
 
 
 @app.on_event("startup")
@@ -54,20 +64,28 @@ async def startup_event():
     """Initialize file watchers, connections, and quote relay"""
     global quote_relay
 
+    print(f"[STARTUP] Beginning startup sequence...")
+
     # Set larger thread pool as default executor to prevent exhaustion
     # LLM validations use asyncio.to_thread() with 60s timeouts - can saturate default pool
     loop = asyncio.get_event_loop()
     loop.set_default_executor(_thread_pool)
     print(f"[OK] Thread pool configured: 50 workers")
+    print(f"[STARTUP] Event loop: {type(loop).__name__}")
 
+    print(f"[STARTUP] Loading config...")
     config = load_config()
     data_dir = config['data_sources']['momentum_trader']['data_dir']
     trader_api_url = config['data_sources']['momentum_trader'].get('api_url', 'http://localhost:8080')
+    print(f"[STARTUP] Config loaded: data_dir={data_dir}, trader_api_url={trader_api_url}")
 
+    print(f"[STARTUP] Starting file watchers...")
     start_file_watchers(data_dir, trader_api_url)
+    print(f"[STARTUP] File watchers started")
 
     # Start quote relay to trader app for real-time streaming
     streaming_config = config.get('streaming', {})
+    print(f"[STARTUP] Starting quote relay (enabled={streaming_config.get('enabled', True)})...")
     if streaming_config.get('enabled', True):
         quote_relay = QuoteRelay(trader_api_url)
         set_quote_relay(quote_relay)
@@ -75,6 +93,10 @@ async def startup_event():
         print("[OK] Quote relay started")
 
     print("[OK] Charting backend started on port 8081")
+    print(f"[STARTUP] Startup sequence complete")
+
+    # Start heartbeat task to detect event loop blocking
+    asyncio.create_task(_heartbeat_loop())
 
 
 @app.on_event("shutdown")
