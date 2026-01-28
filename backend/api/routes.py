@@ -242,7 +242,15 @@ async def validation_status():
     """Check if LLM validation is available"""
     config = load_config()
     validator = get_validator(config)
-    available = await asyncio.to_thread(validator.is_available)
+    # Wrap in wait_for with 5s timeout to prevent blocking if thread pool saturated
+    try:
+        available = await asyncio.wait_for(
+            asyncio.to_thread(validator.is_available),
+            timeout=5.0
+        )
+    except asyncio.TimeoutError:
+        _logger.warning("LLM status check timed out")
+        available = False
     return {
         "available": available,
         "cache_ttl_seconds": 60

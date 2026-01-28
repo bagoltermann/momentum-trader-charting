@@ -9,12 +9,19 @@ Provides:
 import sys
 import asyncio
 import platform
+from concurrent.futures import ThreadPoolExecutor
 
 # Fix for Windows asyncio ProactorEventLoop crash (AssertionError: _sockets is not None)
 # SelectorEventLoop is more stable for long-running HTTP servers on Windows
 # See: https://github.com/python/cpython/issues/78014
 if platform.system() == 'Windows':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+# Increase default thread pool size to prevent exhaustion from concurrent LLM validations
+# Default is min(32, cpu_count + 4) = 20 on 16-core machine
+# LLM calls can block for up to 60s, so we need more headroom
+# See: https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.loop.set_default_executor
+_thread_pool = ThreadPoolExecutor(max_workers=50, thread_name_prefix="asyncio_pool")
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -46,6 +53,13 @@ quote_relay = None
 async def startup_event():
     """Initialize file watchers, connections, and quote relay"""
     global quote_relay
+
+    # Set larger thread pool as default executor to prevent exhaustion
+    # LLM validations use asyncio.to_thread() with 60s timeouts - can saturate default pool
+    loop = asyncio.get_event_loop()
+    loop.set_default_executor(_thread_pool)
+    print(f"[OK] Thread pool configured: 50 workers")
+
     config = load_config()
     data_dir = config['data_sources']['momentum_trader']['data_dir']
     trader_api_url = config['data_sources']['momentum_trader'].get('api_url', 'http://localhost:8080')
@@ -71,6 +85,8 @@ async def shutdown_event():
         quote_relay.stop()
     # Close the shared httpx client
     await close_shared_client()
+    # Shutdown thread pool gracefully
+    _thread_pool.shutdown(wait=False)
     print("[OK] Charting backend shutdown complete")
 
 

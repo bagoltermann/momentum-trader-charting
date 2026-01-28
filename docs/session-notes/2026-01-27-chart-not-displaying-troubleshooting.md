@@ -164,6 +164,51 @@ The `asyncio.wait_for()` wrapper is production-grade defensive coding, but it ma
   3. Original sync version kept for startup initialization
 - **Verification:** Backend should remain responsive even if trader app is slow. Watchlist fetches run in thread pool, not blocking the event loop.
 
+### 10. Thread Pool Exhaustion from LLM Validations (FIXED 2026-01-28)
+- **Trigger:** Multiple concurrent LLM validation requests consuming all threads in the default executor pool
+- **Impact:** Backend hangs. `asyncio.to_thread()` calls block waiting for a thread, but all threads are busy with 60-second LLM requests. Even simple operations like watchlist polling can't get a thread.
+- **Observed:** Log shows watchlist polls stopping, but backend port is still listening. Different from #9 because the sync watchlist fix was applied, but hangs continued.
+- **Root cause chain:**
+  1. `asyncio.to_thread()` uses a shared default executor (ThreadPoolExecutor)
+  2. Default pool size on Windows is `min(32, cpu_count + 4)` = 20 threads on 16-core machine
+  3. LLM validation calls `requests.post()` with 60-second timeout, blocking a thread for up to 60s
+  4. Top 3 validation (3 symbols × multiple `to_thread` calls each) can consume 9+ threads
+  5. Retries on JSON failures multiply the thread usage
+  6. Once pool exhausted, even `asyncio.to_thread(fetch_watchlist_from_trader)` blocks waiting for a thread
+  7. All event loop activity appears to stop
+- **Evidence in logs:** Last entries show successful watchlist fetches, then complete silence. No "Starting request" incomplete. Backend health endpoint still responds but slowly.
+- **Files:**
+  - `backend/main.py` - Thread pool configuration
+  - `backend/services/llm_validator.py` - LLM calls using `asyncio.to_thread()`
+  - `backend/services/file_watcher.py` - Watchlist fetch using `asyncio.to_thread()`
+  - `backend/api/routes.py` - `/validate/status` using `asyncio.to_thread()`
+- **Fix (multi-layer):**
+  1. **Increased thread pool size** to 50 workers in `main.py`:
+     ```python
+     _thread_pool = ThreadPoolExecutor(max_workers=50, thread_name_prefix="asyncio_pool")
+     loop.set_default_executor(_thread_pool)
+     ```
+  2. **Added timeout wrappers** around all `asyncio.to_thread()` calls to prevent indefinite blocking:
+     - `file_watcher.py`: 10s timeout for watchlist fetch
+     - `llm_validator.py`: 10s for context building, 5s for availability check, 75s for LLM call
+     - `routes.py`: 5s for `/validate/status` LLM availability check
+  3. **Graceful fallback** on timeout - returns cached/fallback data instead of blocking
+- **Verification:** Backend should remain responsive even under heavy LLM validation load. Timeouts should trigger and log warnings instead of silent hangs.
+
+### 11. Frontend Freeze / Blank Screen (INVESTIGATING 2026-01-28)
+- **Trigger:** Unknown - occurs after clicking through stocks, even with backend fixes applied
+- **Impact:** Chart screen goes blank. Backend is still responding to requests, but frontend stops sending watchlist polls.
+- **Observed:** Backend log shows candle requests continuing (30s refresh interval), but watchlist polls stop (should be every 5s). Backend health endpoint responds immediately.
+- **Root cause:** Under investigation. Likely causes:
+  1. TradingView lightweight-charts library issue with sparse data (8-24 candles)
+  2. React component state issue causing re-render loop or freeze
+  3. Electron renderer process memory issue
+  4. WebSocket reconnection causing state corruption
+- **Evidence:** Backend log shows candle requests continuing at 30s intervals for the last selected symbol, but no new symbol selections and no watchlist polls.
+- **Files:** Likely `src/renderer/components/charts/EnhancedChart.tsx` or related React components
+- **Workaround:** Ctrl+R to reload the Electron window
+- **Status:** Backend fixes confirmed working. Frontend investigation needed.
+
 ## Debugging Checklist (Quick Reference)
 
 1. **Is backend port open?** `netstat -ano | findstr :8081 | findstr LISTENING`

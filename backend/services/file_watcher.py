@@ -152,6 +152,7 @@ async def get_cached_watchlist_async(refresh: bool = False) -> Optional[List[Dic
     Get watchlist, optionally refreshing from trader API (ASYNC version - use from routes).
 
     Wraps the sync httpx call in asyncio.to_thread() to avoid blocking the event loop.
+    Uses wait_for timeout to prevent indefinite blocking if thread pool is saturated.
     """
     import asyncio
 
@@ -159,7 +160,14 @@ async def get_cached_watchlist_async(refresh: bool = False) -> Optional[List[Dic
         # Only actually fetch if cache is stale (older than TTL)
         if time_module.time() - _watchlist_cache_time > _WATCHLIST_CACHE_TTL:
             # Run sync httpx call in thread pool to avoid blocking event loop
-            await asyncio.to_thread(fetch_watchlist_from_trader)
+            # Wrap in wait_for with 10s timeout (5s httpx + 5s buffer for thread acquisition)
+            try:
+                await asyncio.wait_for(
+                    asyncio.to_thread(fetch_watchlist_from_trader),
+                    timeout=10.0
+                )
+            except asyncio.TimeoutError:
+                print("[WARNING] Watchlist fetch timed out after 10s - using cached data")
 
     with _cache_lock:
         return _cached_watchlist

@@ -1,6 +1,9 @@
 import { create } from 'zustand'
 import axios from 'axios'
 
+// Reusable axios client with timeout to prevent indefinite hangs
+const apiClient = axios.create({ timeout: 10000 })
+
 interface LLMAnalysis {
   catalyst_type?: string
   sentiment?: string
@@ -46,25 +49,28 @@ export const useWatchlistStore = create<WatchlistState>((set, get) => ({
 
   fetchWatchlist: async () => {
     try {
-      // Try backend first (file watcher)
-      const response = await axios.get('http://localhost:8081/api/watchlist')
+      // Try backend first (file watcher) - use client with timeout
+      const response = await apiClient.get('http://localhost:8081/api/watchlist')
       const incoming = response.data as WatchlistItem[]
       if (watchlistChanged(get().watchlist, incoming)) {
         set({ watchlist: incoming, connectionStatus: 'connected', lastUpdate: new Date() })
       } else {
         set({ connectionStatus: 'connected', lastUpdate: new Date() })
       }
-    } catch {
+    } catch (err) {
+      // Log the error for debugging
+      console.warn('[Watchlist] Primary fetch failed:', err instanceof Error ? err.message : err)
       // Fallback to main app API
       try {
-        const response = await axios.get('http://localhost:8080/api/watchlist')
+        const response = await apiClient.get('http://localhost:8080/api/watchlist')
         const incoming = response.data as WatchlistItem[]
         if (watchlistChanged(get().watchlist, incoming)) {
           set({ watchlist: incoming, connectionStatus: 'connected', lastUpdate: new Date() })
         } else {
           set({ connectionStatus: 'connected', lastUpdate: new Date() })
         }
-      } catch {
+      } catch (fallbackErr) {
+        console.warn('[Watchlist] Fallback fetch failed:', fallbackErr instanceof Error ? fallbackErr.message : fallbackErr)
         set({ connectionStatus: 'error' })
       }
     }

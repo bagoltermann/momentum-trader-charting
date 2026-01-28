@@ -215,12 +215,27 @@ class LLMValidator:
                 return cached
 
         # Build context from all available data (CPU-intensive, run in thread to avoid blocking event loop)
-        context = await asyncio.to_thread(
-            self._build_context, symbol, watchlist, runners, quote, candles
-        )
+        # Wrap in wait_for to prevent indefinite blocking if thread pool is saturated
+        try:
+            context = await asyncio.wait_for(
+                asyncio.to_thread(self._build_context, symbol, watchlist, runners, quote, candles),
+                timeout=10.0  # Context building should be fast
+            )
+        except asyncio.TimeoutError:
+            _logger.warning(f"[{symbol}] Context building timed out after 10s")
+            return self._get_fallback_result(symbol, {})
 
         # Check if LLM is available (calls requests.get() with 2s timeout, run in thread)
-        available = await asyncio.to_thread(self.is_available)
+        # Wrap in wait_for with 5s timeout (2s request + 3s buffer for thread acquisition)
+        try:
+            available = await asyncio.wait_for(
+                asyncio.to_thread(self.is_available),
+                timeout=5.0
+            )
+        except asyncio.TimeoutError:
+            _logger.warning(f"[{symbol}] LLM availability check timed out")
+            available = False
+
         if not available:
             _logger.warning(f"LLM not available, using fallback for {symbol}")
             return self._get_fallback_result(symbol, context)
@@ -239,8 +254,10 @@ class LLMValidator:
         for attempt in range(max_retries + 1):
             try:
                 # Call LLM with enhanced JSON extraction (sync requests.post with 60s timeout, run in thread)
-                result = await asyncio.to_thread(
-                    self._call_llm_with_json_extraction, symbol, user_prompt, system_prompt
+                # Wrap in wait_for with 75s timeout (60s LLM + 15s buffer) to prevent indefinite blocking
+                result = await asyncio.wait_for(
+                    asyncio.to_thread(self._call_llm_with_json_extraction, symbol, user_prompt, system_prompt),
+                    timeout=75.0
                 )
 
                 if result['success']:
