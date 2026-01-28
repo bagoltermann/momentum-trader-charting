@@ -365,10 +365,17 @@ class ChartingLauncher:
 
         log("Cleaning up processes...")
 
-        # Try to shutdown backend gracefully via API
+        # Try to shutdown backend gracefully via API (short timeout - don't wait if hung)
         self.shutdown_backend()
 
-        # Kill processes by PID (not /T tree kill, which can kill unrelated processes)
+        # FIRST: Kill anything on our ports - this is the most reliable method
+        # The backend might be hung (can't respond to shutdown), or might have spawned
+        # a child process with a different PID than proc.pid
+        if self.platform == 'Windows':
+            self._kill_port_holders([8081, 5173])
+            time.sleep(0.3)  # Let ports release
+
+        # Then try to kill our tracked processes (for stdout cleanup, etc.)
         for name, proc in [
             ('Electron', self.electron_process),
             ('Vite', self.vite_process),
@@ -392,7 +399,7 @@ class ChartingLauncher:
                 except Exception as e:
                     log(f"[!] Error stopping {name}: {e}")
 
-        # Final safety: kill anything still on our ports
+        # Final safety pass: ensure ports are really freed
         if self.platform == 'Windows':
             self._kill_port_holders([8081, 5173])
 
@@ -402,7 +409,7 @@ class ChartingLauncher:
         log("=" * 60)
 
     def _kill_port_holders(self, ports):
-        """Last-resort: kill any process still holding our ports"""
+        """Kill any process holding our ports - essential for cleanup when backend is hung"""
         try:
             result = subprocess.run(
                 ['netstat', '-ano'],
@@ -416,12 +423,17 @@ class ChartingLauncher:
                         pid = int(parts[-1])
                         if pid == 0:
                             continue
-                        log(f"[!] Port {port} still held by PID {pid}, force killing...")
-                        subprocess.run(
+                        log(f"[!] Port {port} held by PID {pid}, killing...")
+                        kill_result = subprocess.run(
                             ['taskkill', '/F', '/PID', str(pid)],
-                            capture_output=True,
+                            capture_output=True, text=True,
                             creationflags=subprocess.CREATE_NO_WINDOW
                         )
+                        if kill_result.returncode == 0:
+                            log(f"[OK] Killed PID {pid} (was holding port {port})")
+                        else:
+                            # taskkill may fail if process already gone
+                            log(f"[!] Could not kill PID {pid}: {kill_result.stderr.strip() or 'unknown error'}")
         except Exception as e:
             log(f"[!] Error in port cleanup: {e}")
 

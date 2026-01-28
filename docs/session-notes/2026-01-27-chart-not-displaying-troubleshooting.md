@@ -249,6 +249,18 @@ The `asyncio.wait_for()` wrapper is production-grade defensive coding, but it ma
   - Connection pool managed by asyncio event loop, not blocking threads
 - **Verification:** Backend should remain responsive even if trader app is slow or hung. Watchlist fetches will timeout after 5s and return cached data instead of hanging indefinitely.
 
+### 13. Hung Backend Not Killed on App Exit (FIXED 2026-01-28)
+- **Trigger:** Backend becomes unresponsive (hung), user closes app
+- **Impact:** Old hung backend process persists, blocks port 8081. Next app launch either fails or connects to the zombie process.
+- **Observed:** After restart, same PID still listening on 8081. Backend log shows no new entries. Health check hangs.
+- **Root cause:** Launcher cleanup relied on `/api/shutdown` API call (times out if backend hung) and process PID kill (but uvicorn may have spawned a child with different PID).
+- **Files:** `launcher.py` - cleanup() and _kill_port_holders()
+- **Fix:**
+  1. **Port-first cleanup:** Kill processes by port FIRST, before trying graceful shutdown or PID-based kill
+  2. **Double-pass cleanup:** Run port cleanup at start and end of cleanup routine
+  3. **Better logging:** Show which PIDs are being killed and success/failure
+- **Verification:** When backend is hung and app is closed, the next launch should start fresh (new PID on 8081, responsive health check).
+
 ## Debugging Checklist (Quick Reference)
 
 1. **Is backend port open?** `netstat -ano | findstr :8081 | findstr LISTENING`
@@ -258,12 +270,14 @@ The `asyncio.wait_for()` wrapper is production-grade defensive coding, but it ma
 5. **Nuclear option:** Kill backend process, Ctrl+R the Electron window, restart app
 
 ## Files Referenced
+- `launcher.py` - Cross-platform launcher with process cleanup
 - `backend/services/schwab_client.py` - Schwab API client, semaphore, circuit breaker
 - `backend/services/file_watcher.py` - Watchlist fetch from trader app, runners file watcher
 - `backend/services/quote_relay.py` - SocketIO relay to trader app for streaming
 - `backend/api/routes.py` - WebSocket endpoint `/ws/quotes`, REST endpoints
 - `backend/main.py` - Uvicorn server config, thread pool configuration
 - `backend/services/llm_validator.py` - LLM validation with timeout wrappers
+- `src/main/main.ts` - Electron main process, shutdown handling
 - `src/renderer/hooks/useStreamingQuotes.ts` - WebSocket client, candle builder, stale detection
 - `src/renderer/store/candleDataStore.ts` - Frontend candle data management
 - `src/renderer/store/watchlistStore.ts` - Watchlist polling with axios timeout
@@ -272,3 +286,4 @@ The `asyncio.wait_for()` wrapper is production-grade defensive coding, but it ma
 - `src/renderer/components/ErrorBoundary.tsx` - React error boundary for crash recovery
 - `src/renderer/utils/debugLog.ts` - Debug logging toggle (`DEBUG_CHARTS`)
 - `logs/backend.log` - Backend runtime log
+- `logs/launcher.log` - Launcher log (useful for debugging startup/shutdown)
