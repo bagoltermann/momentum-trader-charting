@@ -29,31 +29,8 @@ _trader_api_url: str = "http://localhost:8080"
 _watchlist_cache_time: float = 0
 _WATCHLIST_CACHE_TTL = 5.0  # seconds - fast enough for live trading
 
-# Async httpx client for non-blocking API calls
-# NOTE: No lock needed - worst case we create two clients and one gets GC'd
-_async_httpx_client: Optional[httpx.AsyncClient] = None
-
-
-def _create_async_httpx_client() -> httpx.AsyncClient:
-    """Create a new async httpx client with proper settings"""
-    return httpx.AsyncClient(
-        timeout=httpx.Timeout(5.0, connect=3.0),
-        limits=httpx.Limits(max_connections=5, max_keepalive_connections=2),
-        http2=False  # Disable HTTP/2 - can cause connection issues on Windows
-    )
-
-
-async def _get_async_httpx_client() -> httpx.AsyncClient:
-    """Get the async httpx client, creating if needed"""
-    global _async_httpx_client
-
-    # Fast path: client exists and is open
-    if _async_httpx_client is not None and not _async_httpx_client.is_closed:
-        return _async_httpx_client
-
-    # Slow path: need to create client
-    _async_httpx_client = _create_async_httpx_client()
-    return _async_httpx_client
+# NOTE: Using fresh httpx client per request to avoid connection pool corruption
+# Less efficient but more robust for long-running servers on Windows
 
 
 class DataFileHandler(FileSystemEventHandler):
@@ -90,20 +67,21 @@ async def fetch_watchlist_from_trader_async() -> Optional[List[Dict]]:
     """
     Fetch watchlist directly from trader app API (async version).
 
-    This ensures charting app shows exactly what trader app shows,
-    avoiding sync issues with watchlist_state.json (which contains
-    all historical stocks, not just currently active ones).
+    Uses fresh client per request to avoid connection pool corruption.
     """
     global _cached_watchlist, _watchlist_cache_time
     try:
-        client = await _get_async_httpx_client()
-        # Use wait_for to hard-limit request time (prevents indefinite hangs)
-        response = await asyncio.wait_for(
-            client.get(f"{_trader_api_url}/api/watchlist"),
-            timeout=5.0
-        )
-        response.raise_for_status()
-        watchlist = response.json()
+        # Create fresh client for each request to avoid connection pool issues
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(5.0, connect=3.0),
+            http2=False
+        ) as client:
+            response = await asyncio.wait_for(
+                client.get(f"{_trader_api_url}/api/watchlist"),
+                timeout=5.0
+            )
+            response.raise_for_status()
+            watchlist = response.json()
 
         with _cache_lock:
             _cached_watchlist = watchlist
@@ -184,12 +162,8 @@ def stop_file_watchers():
 
 
 async def close_async_client():
-    """Close the async httpx client (call on shutdown)"""
-    global _async_httpx_client
-    if _async_httpx_client and not _async_httpx_client.is_closed:
-        await _async_httpx_client.aclose()
-        _async_httpx_client = None
-        print("[OK] File watcher async client closed")
+    """No-op - using fresh clients per request now"""
+    pass
 
 
 def get_cached_watchlist(refresh: bool = False) -> Optional[List[Dict]]:

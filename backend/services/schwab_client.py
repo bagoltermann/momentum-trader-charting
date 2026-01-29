@@ -126,66 +126,43 @@ def _get_semaphore() -> asyncio.Semaphore:
     return _api_semaphore
 
 
-# Shared httpx client for connection reuse
-# NOTE: Client is created once at startup and reused. No lock needed for reads.
-# If client becomes closed, we recreate it inline (rare edge case).
-_shared_client: Optional[httpx.AsyncClient] = None
-
-
-def _create_httpx_client() -> httpx.AsyncClient:
-    """Create a new httpx client with proper settings"""
-    return httpx.AsyncClient(
-        timeout=httpx.Timeout(10.0, connect=5.0),
-        limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
-        http2=False  # Disable HTTP/2 - can cause connection issues on Windows
-    )
-
-
-async def _get_client() -> httpx.AsyncClient:
-    """Get the shared httpx client, creating if needed"""
-    global _shared_client
-
-    # Fast path: client exists and is open
-    if _shared_client is not None and not _shared_client.is_closed:
-        return _shared_client
-
-    # Slow path: need to create client (rare - only at startup or after error)
-    # No lock needed - worst case we create two clients and one gets GC'd
-    _shared_client = _create_httpx_client()
-    _logger.info("Created new shared httpx client")
-    return _shared_client
+# NOTE: Using fresh httpx client per request to avoid connection pool corruption
+# Less efficient but more robust for long-running servers on Windows
 
 
 async def make_api_request(url: str, params: Dict, headers: Dict) -> Optional[httpx.Response]:
     """
-    Make an API request using httpx with shared client.
+    Make an API request using httpx.
+
+    Uses fresh client per request to avoid connection pool corruption issues.
+    Less efficient but more robust for long-running server on Windows.
     """
     _logger.info(f"make_api_request: Starting request to {url}")
 
-    client = await _get_client()
-
-    try:
-        response = await client.get(url, params=params, headers=headers)
-        _logger.info(f"make_api_request: Got response status {response.status_code}")
-        return response
-    except httpx.TimeoutException:
-        _logger.warning(f"make_api_request: Timeout")
-        raise asyncio.TimeoutError()
-    except httpx.HTTPError as e:
-        _logger.warning(f"httpx request failed: {e}")
-        raise
-    except Exception as e:
-        _logger.warning(f"API request failed: {e}")
-        raise
+    # Create fresh client for each request to avoid connection pool issues
+    # This prevents hung connections from blocking future requests
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(10.0, connect=5.0),
+        http2=False
+    ) as client:
+        try:
+            response = await client.get(url, params=params, headers=headers)
+            _logger.info(f"make_api_request: Got response status {response.status_code}")
+            return response
+        except httpx.TimeoutException:
+            _logger.warning(f"make_api_request: Timeout")
+            raise asyncio.TimeoutError()
+        except httpx.HTTPError as e:
+            _logger.warning(f"httpx request failed: {e}")
+            raise
+        except Exception as e:
+            _logger.warning(f"API request failed: {e}")
+            raise
 
 
 async def close_shared_client():
-    """Close the shared httpx client"""
-    global _shared_client
-    if _shared_client and not _shared_client.is_closed:
-        await _shared_client.aclose()
-        _shared_client = None
-        _logger.info("Closed shared httpx client")
+    """No-op - using fresh clients per request now"""
+    pass
 
 
 class ChartSchwabClient:
