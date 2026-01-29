@@ -73,13 +73,17 @@ async def fetch_watchlist_from_trader_async() -> Optional[List[Dict]]:
     """
     global _cached_watchlist, _watchlist_cache_time
     try:
+        # Force IPv4 to avoid IPv6 connection hangs on Windows
+        # localhost can resolve to ::1 (IPv6) which may hang if server only binds IPv4
+        api_url = _trader_api_url.replace("localhost", "127.0.0.1")
+
         # Create fresh client for each request to avoid connection pool issues
         async with httpx.AsyncClient(
-            timeout=httpx.Timeout(5.0, connect=3.0),
+            timeout=httpx.Timeout(5.0, connect=2.0),  # Shorter connect timeout
             http2=False
         ) as client:
             response = await asyncio.wait_for(
-                client.get(f"{_trader_api_url}/api/watchlist"),
+                client.get(f"{api_url}/api/watchlist"),
                 timeout=5.0
             )
             response.raise_for_status()
@@ -111,9 +115,12 @@ def fetch_watchlist_from_trader() -> Optional[List[Dict]]:
     """
     global _cached_watchlist, _watchlist_cache_time
     try:
+        # Force IPv4 to avoid IPv6 connection hangs on Windows
+        api_url = _trader_api_url.replace("localhost", "127.0.0.1")
+
         # Create a one-off sync client with strict timeout
-        with httpx.Client(timeout=httpx.Timeout(5.0, connect=3.0)) as client:
-            response = client.get(f"{_trader_api_url}/api/watchlist")
+        with httpx.Client(timeout=httpx.Timeout(5.0, connect=2.0)) as client:
+            response = client.get(f"{api_url}/api/watchlist")
             response.raise_for_status()
             watchlist = response.json()
 

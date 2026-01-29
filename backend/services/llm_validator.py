@@ -146,8 +146,11 @@ class LLMValidator:
         llm_config = self.config.get('llm') or {}
         ollama_config = llm_config.get('ollama') or {}
 
+        # Force IPv4 to avoid IPv6 connection hangs on Windows
+        base_url = ollama_config.get('base_url', 'http://localhost:11434')
+        base_url = base_url.replace("localhost", "127.0.0.1")
         self._provider_config = {
-            'base_url': ollama_config.get('base_url', 'http://localhost:11434'),
+            'base_url': base_url,
             'model': ollama_config.get('model', 'qwen2.5:7b'),
             'max_tokens': ollama_config.get('max_tokens', 1000),
             'temperature': ollama_config.get('temperature', 0.3),
@@ -167,7 +170,7 @@ class LLMValidator:
             try:
                 if not hasattr(self, '_provider_config'):
                     self._provider_config = {
-                        'base_url': 'http://localhost:11434',
+                        'base_url': 'http://127.0.0.1:11434',  # Force IPv4
                         'model': 'qwen2.5:7b',
                         'max_tokens': 1000,
                         'temperature': 0.3,

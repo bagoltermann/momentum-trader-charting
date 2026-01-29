@@ -20,7 +20,9 @@ class QuoteRelay:
     """Connects to trader app SocketIO, relays quotes to frontend WebSocket clients"""
 
     def __init__(self, trader_url: str = "http://localhost:8080"):
-        self.trader_url = trader_url
+        # Force IPv4 to avoid IPv6 connection hangs on Windows
+        # localhost can resolve to ::1 (IPv6) which may hang if server only binds IPv4
+        self.trader_url = trader_url.replace("localhost", "127.0.0.1")
         self.sio = socketio.Client(reconnection=True, reconnection_delay=5)
         self._callbacks = []
         self._status_callbacks = []  # Callbacks for connection status changes
