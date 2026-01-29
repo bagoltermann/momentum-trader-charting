@@ -54,8 +54,10 @@ class DataFileHandler(FileSystemEventHandler):
         try:
             runners_path = self.data_dir / 'runners.json'
             if runners_path.exists():
+                # Read file OUTSIDE the lock to avoid blocking async code
                 with open(runners_path) as f:
                     data = json.load(f)
+                # Only hold lock for quick assignment
                 with _cache_lock:
                     _cached_runners = data
                 print("[OK] Runners reloaded")
@@ -83,9 +85,10 @@ async def fetch_watchlist_from_trader_async() -> Optional[List[Dict]]:
             response.raise_for_status()
             watchlist = response.json()
 
-        with _cache_lock:
-            _cached_watchlist = watchlist
-            _watchlist_cache_time = time_module.time()
+        # NOTE: Simple assignment is atomic in Python (GIL), no lock needed for writes
+        # The lock was causing event loop blocking when held by file watcher thread
+        _cached_watchlist = watchlist
+        _watchlist_cache_time = time_module.time()
 
         print(f"[OK] Watchlist fetched from trader API: {len(watchlist)} stocks")
         return watchlist
@@ -114,9 +117,9 @@ def fetch_watchlist_from_trader() -> Optional[List[Dict]]:
             response.raise_for_status()
             watchlist = response.json()
 
-        with _cache_lock:
-            _cached_watchlist = watchlist
-            _watchlist_cache_time = time_module.time()
+        # Simple assignment is atomic in Python (GIL)
+        _cached_watchlist = watchlist
+        _watchlist_cache_time = time_module.time()
 
         print(f"[OK] Watchlist fetched from trader API: {len(watchlist)} stocks")
         return watchlist
@@ -180,8 +183,8 @@ def get_cached_watchlist(refresh: bool = False) -> Optional[List[Dict]]:
         if time_module.time() - _watchlist_cache_time > _WATCHLIST_CACHE_TTL:
             fetch_watchlist_from_trader()
 
-    with _cache_lock:
-        return _cached_watchlist
+    # Simple read is atomic in Python (GIL)
+    return _cached_watchlist
 
 
 async def get_cached_watchlist_async(refresh: bool = False) -> Optional[List[Dict]]:
@@ -196,10 +199,11 @@ async def get_cached_watchlist_async(refresh: bool = False) -> Optional[List[Dic
             # Use native async fetch - no thread pool, no blocking
             await fetch_watchlist_from_trader_async()
 
-    with _cache_lock:
-        return _cached_watchlist
+    # NOTE: Simple read is atomic in Python (GIL), no lock needed
+    # Avoid threading.Lock in async code - blocks entire event loop
+    return _cached_watchlist
 
 
 def get_cached_runners() -> Optional[Dict]:
-    with _cache_lock:
-        return _cached_runners
+    # Simple read is atomic in Python (GIL)
+    return _cached_runners

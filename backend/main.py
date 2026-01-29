@@ -53,13 +53,17 @@ _heartbeat_count = 0
 async def _heartbeat_loop():
     """Log heartbeat every 30s to detect event loop blocking"""
     global _heartbeat_count
+    import logging
+    _hb_logger = logging.getLogger('heartbeat')
     while True:
         await asyncio.sleep(30)
         _heartbeat_count += 1
         # Count pending tasks to detect task buildup
         all_tasks = asyncio.all_tasks()
         pending = len([t for t in all_tasks if not t.done()])
-        print(f"[HEARTBEAT] #{_heartbeat_count} - Event loop alive, {pending} tasks")
+        msg = f"[HEARTBEAT] #{_heartbeat_count} - Event loop alive, {pending} tasks"
+        print(msg)
+        _hb_logger.info(msg)
 
 
 @app.on_event("startup")
