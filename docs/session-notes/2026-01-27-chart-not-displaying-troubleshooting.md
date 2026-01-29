@@ -261,6 +261,56 @@ The `asyncio.wait_for()` wrapper is production-grade defensive coding, but it ma
   3. **Better logging:** Show which PIDs are being killed and success/failure
 - **Verification:** When backend is hung and app is closed, the next launch should start fresh (new PID on 8081, responsive health check).
 
+### 14. asyncio.Lock Deadlock in httpx Client Management (FIXED 2026-01-29)
+- **Trigger:** Normal operation under load - multiple concurrent API requests
+- **Impact:** Backend becomes completely unresponsive. Massive CLOSE_WAIT connection buildup (20+ connections). Event loop frozen (no heartbeat logged).
+- **Observed:** Backend port still LISTENING, but curl hangs. Log stops mid-operation with no errors. `netstat` shows many CLOSE_WAIT connections from frontend.
+- **Root cause:** Lazy `asyncio.Lock()` initialization combined with lock contention:
+  1. `_get_lock()` created lock lazily on first access
+  2. Lock created outside proper event loop context on Windows
+  3. If one coroutine held lock while httpx had internal issues, all other coroutines queued up
+  4. Potential deadlock if httpx internal state became corrupted while holding lock
+- **Files:**
+  - `backend/services/schwab_client.py` - Removed `_client_lock` and `_get_lock()`
+  - `backend/services/file_watcher.py` - Removed `_async_client_lock` and `_get_async_lock()`
+- **Fix:**
+  1. **Remove asyncio.Lock entirely** from client management - not needed for single-assignment patterns
+  2. **Disable HTTP/2** in httpx - HTTP/2 multiplexing can cause issues on Windows long-running connections
+  3. **Lock-free pattern:** Simple check-then-set (worst case: create two clients, one gets GC'd)
+  4. **Enhanced heartbeat:** Log pending task count to detect task buildup
+- **Verification:** Backend should remain responsive under load. No CLOSE_WAIT buildup. Heartbeat continues logging every 30s.
+
+### 15. httpx Connection Pool Corruption (FIXED 2026-01-29)
+- **Trigger:** Normal operation over time - shared httpx client with connection pool
+- **Impact:** Backend becomes completely unresponsive. Same symptoms as #14 (CLOSE_WAIT buildup, log stops, curl hangs).
+- **Observed:** Despite removing asyncio.Lock (#14), backend still hangs after ~5-10 minutes of operation. Log shows normal activity then silence. ESTABLISHED connection to Schwab API (23.48.203.110:443) remains open.
+- **Root cause hypothesis:** httpx's connection pool can get into a corrupted state on Windows:
+  1. HTTP/1.1 keep-alive connections can become stale
+  2. SSL/TLS handshake timeouts may not be properly handled
+  3. Corrupted connection stays in pool, blocking future requests
+  4. All coroutines waiting for healthy connection freeze the event loop
+- **Files:**
+  - `backend/services/schwab_client.py` - `make_api_request()` now uses fresh client per request
+  - `backend/services/file_watcher.py` - `fetch_watchlist_from_trader_async()` now uses fresh client per request
+- **Fix:**
+  1. **Abandon shared httpx client entirely** - no more global `_shared_client` or `_async_httpx_client`
+  2. **Fresh client per request:** `async with httpx.AsyncClient(...) as client:` context manager pattern
+  3. **Automatic cleanup:** Client closes automatically when context manager exits
+  4. **No connection pool = no pool corruption possible**
+- **Trade-off:** ~50ms higher latency per request (TLS handshake overhead), but eliminates hang risk entirely.
+- **Code pattern:**
+  ```python
+  # Before (shared client with pool - can corrupt):
+  client = await _get_client()  # may return corrupted connection
+  response = await client.get(url)
+
+  # After (fresh client per request - no pool):
+  async with httpx.AsyncClient(timeout=..., http2=False) as client:
+      response = await client.get(url)
+      # client closed automatically on exit
+  ```
+- **Verification:** Backend should remain responsive indefinitely. No connection pool state to corrupt. Each request is fully independent.
+
 ## Debugging Checklist (Quick Reference)
 
 1. **Is backend port open?** `netstat -ano | findstr :8081 | findstr LISTENING`
