@@ -351,6 +351,41 @@ The `asyncio.wait_for()` wrapper is production-grade defensive coding, but it ma
   ```
 - **Verification:** Backend should remain responsive. Heartbeat continues logging every 30s. No event loop blocking when file watcher is busy.
 
+### 17. IPv6 Connection Hang on Windows (FIXED 2026-01-29)
+- **Trigger:** Any connection to `localhost` when target only binds IPv4
+- **Impact:** Backend becomes completely unresponsive. Same symptoms as all previous hangs.
+- **Observed:** netstat shows `SYN_SENT` to `[::1]:8080` (IPv6) stuck. curl to `localhost:8080` works fine (uses IPv4). Backend log stops with no errors.
+- **Root cause:** httpx/socket.io use `localhost` which resolves to both `127.0.0.1` (IPv4) and `::1` (IPv6):
+  1. Python's socket implementation prefers IPv6 when available
+  2. If target service only binds to `0.0.0.0` (IPv4), IPv6 connections hang
+  3. SYN packet sent to `[::1]:port` never gets RST or SYN-ACK (no listener)
+  4. TCP keeps retrying SYN for minutes before giving up
+  5. httpx's connect timeout (3s) may not fire - it's measuring from connection start, but the socket is stuck in kernel-level TCP handshake
+  6. Event loop blocks waiting for the connection to complete
+- **Evidence in netstat:**
+  ```
+  TCP    [::1]:54022            [::1]:8080             SYN_SENT        <backend_pid>
+  ```
+  While `curl http://localhost:8080` works (because curl tries IPv4 first on Windows).
+- **Files:**
+  - `backend/services/file_watcher.py` - Trader API calls
+  - `backend/services/quote_relay.py` - SocketIO connection
+  - `backend/services/llm_validator.py` - Ollama API calls
+- **Fix:** Replace all `localhost` with `127.0.0.1` to force IPv4:
+  ```python
+  api_url = _trader_api_url.replace("localhost", "127.0.0.1")
+  ```
+- **Why IPv4 is safer on Windows:**
+  - Most local services bind to `0.0.0.0` (IPv4 only)
+  - IPv6 localhost (`::1`) requires explicit dual-stack binding
+  - Windows IPv6 stack can have inconsistent behavior
+  - Forcing IPv4 eliminates the resolution race condition
+- **Alternative fixes (not implemented):**
+  - Bind all services to `::` (dual-stack) - requires changes to trader app, Ollama
+  - Use `socket.setdefaulttimeout()` - affects all sockets globally
+  - Use `socket.AF_INET` explicitly in httpx - not easily configurable
+- **Verification:** Backend should remain responsive. No `SYN_SENT` connections in netstat. All localhost URLs should show `127.0.0.1` in logs.
+
 ## Debugging Checklist (Quick Reference)
 
 1. **Is backend port open?** `netstat -ano | findstr :8081 | findstr LISTENING`
