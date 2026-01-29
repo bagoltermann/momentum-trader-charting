@@ -311,6 +311,46 @@ The `asyncio.wait_for()` wrapper is production-grade defensive coding, but it ma
   ```
 - **Verification:** Backend should remain responsive indefinitely. No connection pool state to corrupt. Each request is fully independent.
 
+### 16. threading.Lock Blocking Async Event Loop (FIXED 2026-01-29)
+- **Trigger:** Normal operation - file watcher thread and async routes both accessing cached data
+- **Impact:** Backend becomes completely unresponsive. Event loop frozen (no heartbeat logged). Same symptoms as #14 and #15.
+- **Observed:** Backend port still LISTENING, curl hangs. Log shows last activity then complete silence. Heartbeat stops. CLOSE_WAIT connection buildup. SYN_SENT to port 8080 (trader app) stuck.
+- **Root cause:** `threading.Lock` (`_cache_lock`) used in async code paths:
+  1. `_cache_lock = threading.Lock()` was a module-level threading lock
+  2. File watcher thread (synchronous) acquired lock during `_reload_runners()`
+  3. Async routes called `get_cached_watchlist_async()` or `get_cached_runners()` which tried to acquire the same lock
+  4. **Critical:** `threading.Lock.acquire()` is a blocking call - blocks the **entire async event loop**, not just the current coroutine
+  5. If file watcher held lock while doing I/O, all async operations froze
+  6. Heartbeat coroutine also frozen, so no heartbeat logged
+- **Why this is different from asyncio.Lock:**
+  - `asyncio.Lock` is async-aware - it suspends the coroutine and lets other coroutines run
+  - `threading.Lock` is thread-aware - it blocks the calling thread entirely
+  - In async code, the calling thread IS the event loop thread - blocking it freezes everything
+- **Files:**
+  - `backend/services/file_watcher.py` - Removed `_cache_lock` from all async paths
+- **Fix:**
+  1. **Remove threading.Lock from all async code paths** - reads don't need locking
+  2. **Python GIL guarantees atomic reads:** Simple variable reads like `return _cached_watchlist` are thread-safe due to GIL
+  3. **Keep lock only for file watcher thread writes:** File watcher still uses lock internally for writes to prevent interleaved writes
+  4. **Added heartbeat file logging:** Heartbeat now logs to `backend.log` in addition to console for post-mortem analysis
+- **Key insight:** Never mix `threading.Lock` with async code. If you need locking in async code, use `asyncio.Lock`. If you need to share data between sync threads and async code, either:
+  - Use lock-free patterns (atomic assignments)
+  - Use `asyncio.run_coroutine_threadsafe()` to run async code from threads
+  - Use `janus` library for thread-safe async queues
+- **Code pattern:**
+  ```python
+  # WRONG - blocks event loop:
+  _cache_lock = threading.Lock()
+  async def get_data():
+      with _cache_lock:  # <- BLOCKS ENTIRE EVENT LOOP
+          return _cached_data
+
+  # CORRECT - lock-free read (GIL makes this safe):
+  async def get_data():
+      return _cached_data  # Simple read is atomic in Python
+  ```
+- **Verification:** Backend should remain responsive. Heartbeat continues logging every 30s. No event loop blocking when file watcher is busy.
+
 ## Debugging Checklist (Quick Reference)
 
 1. **Is backend port open?** `netstat -ano | findstr :8081 | findstr LISTENING`
