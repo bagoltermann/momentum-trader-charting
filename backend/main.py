@@ -26,11 +26,14 @@ _thread_pool = ThreadPoolExecutor(max_workers=50, thread_name_prefix="asyncio_po
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+import logging
 from api.routes import router, get_schwab_client, set_quote_relay
 from services.file_watcher import start_file_watchers, stop_file_watchers, close_async_client
 from services.schwab_client import close_shared_client
 from services.quote_relay import QuoteRelay
 from core.config import load_config
+
+_logger = logging.getLogger('main')
 
 app = FastAPI(title="Momentum Trader Charts Backend")
 
@@ -53,7 +56,6 @@ _heartbeat_count = 0
 async def _heartbeat_loop():
     """Log heartbeat every 30s to detect event loop blocking"""
     global _heartbeat_count
-    import logging
     _hb_logger = logging.getLogger('heartbeat')
     while True:
         await asyncio.sleep(30)
@@ -61,9 +63,8 @@ async def _heartbeat_loop():
         # Count pending tasks to detect task buildup
         all_tasks = asyncio.all_tasks()
         pending = len([t for t in all_tasks if not t.done()])
-        msg = f"[HEARTBEAT] #{_heartbeat_count} - Event loop alive, {pending} tasks"
-        print(msg)
-        _hb_logger.info(msg)
+        # NOTE: Using logger only, not print() - print can block event loop on Windows
+        _hb_logger.info(f"[HEARTBEAT] #{_heartbeat_count} - Event loop alive, {pending} tasks")
 
 
 @app.on_event("startup")
@@ -71,36 +72,36 @@ async def startup_event():
     """Initialize file watchers, connections, and quote relay"""
     global quote_relay
 
-    print(f"[STARTUP] Beginning startup sequence...")
+    _logger.info("[STARTUP] Beginning startup sequence...")
 
     # Set larger thread pool as default executor to prevent exhaustion
     # LLM validations use asyncio.to_thread() with 60s timeouts - can saturate default pool
     loop = asyncio.get_event_loop()
     loop.set_default_executor(_thread_pool)
-    print(f"[OK] Thread pool configured: 50 workers")
-    print(f"[STARTUP] Event loop: {type(loop).__name__}")
+    _logger.info("[OK] Thread pool configured: 50 workers")
+    _logger.info(f"[STARTUP] Event loop: {type(loop).__name__}")
 
-    print(f"[STARTUP] Loading config...")
+    _logger.info("[STARTUP] Loading config...")
     config = load_config()
     data_dir = config['data_sources']['momentum_trader']['data_dir']
     trader_api_url = config['data_sources']['momentum_trader'].get('api_url', 'http://localhost:8080')
-    print(f"[STARTUP] Config loaded: data_dir={data_dir}, trader_api_url={trader_api_url}")
+    _logger.info(f"[STARTUP] Config loaded: data_dir={data_dir}, trader_api_url={trader_api_url}")
 
-    print(f"[STARTUP] Starting file watchers...")
+    _logger.info("[STARTUP] Starting file watchers...")
     start_file_watchers(data_dir, trader_api_url)
-    print(f"[STARTUP] File watchers started")
+    _logger.info("[STARTUP] File watchers started")
 
     # Start quote relay to trader app for real-time streaming
     streaming_config = config.get('streaming', {})
-    print(f"[STARTUP] Starting quote relay (enabled={streaming_config.get('enabled', True)})...")
+    _logger.info(f"[STARTUP] Starting quote relay (enabled={streaming_config.get('enabled', True)})...")
     if streaming_config.get('enabled', True):
         quote_relay = QuoteRelay(trader_api_url)
         set_quote_relay(quote_relay)
         quote_relay.start()
-        print("[OK] Quote relay started")
+        _logger.info("[OK] Quote relay started")
 
-    print("[OK] Charting backend started on port 8081")
-    print(f"[STARTUP] Startup sequence complete")
+    _logger.info("[OK] Charting backend started on port 8081")
+    _logger.info("[STARTUP] Startup sequence complete")
 
     # Start heartbeat task to detect event loop blocking
     asyncio.create_task(_heartbeat_loop())
@@ -117,7 +118,7 @@ async def shutdown_event():
     await close_async_client()
     # Shutdown thread pool gracefully
     _thread_pool.shutdown(wait=False)
-    print("[OK] Charting backend shutdown complete")
+    _logger.info("[OK] Charting backend shutdown complete")
 
 
 @app.get("/api/health")

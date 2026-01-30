@@ -63,9 +63,9 @@ class DataFileHandler(FileSystemEventHandler):
                 # Only hold lock for quick assignment
                 with _cache_lock:
                     _cached_runners = data
-                print("[OK] Runners reloaded")
+                _logger.info("Runners reloaded")
         except Exception as e:
-            print(f"[ERROR] Failed to reload runners: {e}")
+            _logger.error(f"Failed to reload runners: {e}")
 
 
 async def fetch_watchlist_from_trader_async() -> Optional[List[Dict]]:
@@ -165,8 +165,8 @@ def start_file_watchers(data_dir: str, trader_api_url: str = "http://localhost:8
     _observer = Observer()
     _observer.schedule(handler, data_dir, recursive=False)
     _observer.start()
-    print(f"[OK] File watcher started for: {data_dir}")
-    print(f"[OK] Watchlist source: {trader_api_url}/api/watchlist")
+    _logger.info(f"File watcher started for: {data_dir}")
+    _logger.info(f"Watchlist source: {trader_api_url}/api/watchlist")
 
 
 def stop_file_watchers():
@@ -176,7 +176,7 @@ def stop_file_watchers():
         _observer.stop()
         _observer.join(timeout=5)
         _observer = None
-        print("[OK] File watcher stopped")
+        _logger.info("File watcher stopped")
 
 
 async def close_async_client():

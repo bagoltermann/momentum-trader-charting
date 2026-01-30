@@ -14,6 +14,9 @@ Contract (from trader app v1.46.0):
 import socketio
 import threading
 import time
+import logging
+
+_logger = logging.getLogger('quote_relay')
 
 
 class QuoteRelay:
@@ -53,7 +56,7 @@ class QuoteRelay:
             self.sio.connect(self.trader_url, wait_timeout=10)
             self.sio.wait()  # Block thread until disconnect
         except Exception as e:
-            print(f"[QUOTE-RELAY] Connection failed: {e}")
+            _logger.error(f"Connection failed: {e}")
             self._connected = False
 
     def subscribe(self, symbols: list):
@@ -101,7 +104,7 @@ class QuoteRelay:
 
     def _on_connect(self):
         self._connected = True
-        print("[QUOTE-RELAY] Connected to trader app")
+        _logger.info("Connected to trader app")
         self._notify_status(True)
         # Re-subscribe on reconnect
         if self._current_symbols:
@@ -109,7 +112,7 @@ class QuoteRelay:
 
     def _on_disconnect(self):
         self._connected = False
-        print("[QUOTE-RELAY] Disconnected from trader app")
+        _logger.info("Disconnected from trader app")
         self._notify_status(False)
 
     def _on_quote(self, data):
@@ -122,10 +125,10 @@ class QuoteRelay:
                 pass
 
     def _on_subscribe_response(self, data):
-        print(f"[QUOTE-RELAY] Subscribe response: {data}")
+        _logger.debug(f"Subscribe response: {data}")
 
     def _on_unsubscribe_response(self, data):
-        print(f"[QUOTE-RELAY] Unsubscribe response: {data}")
+        _logger.debug(f"Unsubscribe response: {data}")
 
     def stop(self):
         """Disconnect from trader app"""

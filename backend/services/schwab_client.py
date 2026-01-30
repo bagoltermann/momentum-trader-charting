@@ -189,7 +189,7 @@ class ChartSchwabClient:
         self._token_cache_time: float = 0
         self._TOKEN_CACHE_TTL = 60  # seconds (tokens refresh every 30 min)
 
-        print(f"[OK] Schwab client configured (aiohttp + circuit breaker) using tokens from: {self._token_path}")
+        _logger.info(f"Schwab client configured (aiohttp + circuit breaker) using tokens from: {self._token_path}")
 
     async def close(self):
         """Close is handled globally via close_shared_client()"""
