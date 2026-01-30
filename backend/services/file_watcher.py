@@ -16,7 +16,10 @@ import threading
 import time as time_module
 import httpx
 import asyncio
+import logging
 from typing import Optional, Dict, List
+
+_logger = logging.getLogger('file_watcher')
 
 # Cached data
 _cached_watchlist: Optional[List[Dict]] = None
@@ -76,24 +79,30 @@ async def fetch_watchlist_from_trader_async() -> Optional[List[Dict]]:
         # Force IPv4 to avoid IPv6 connection hangs on Windows
         # localhost can resolve to ::1 (IPv6) which may hang if server only binds IPv4
         api_url = _trader_api_url.replace("localhost", "127.0.0.1")
+        _logger.info(f"fetch_watchlist_from_trader_async: starting request to {api_url}")
 
         # Create fresh client for each request to avoid connection pool issues
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(5.0, connect=2.0),  # Shorter connect timeout
             http2=False
         ) as client:
+            _logger.info("fetch_watchlist_from_trader_async: client created, making request")
             response = await asyncio.wait_for(
                 client.get(f"{api_url}/api/watchlist"),
                 timeout=5.0
             )
+            _logger.info(f"fetch_watchlist_from_trader_async: got response {response.status_code}")
             response.raise_for_status()
             watchlist = response.json()
+            _logger.info(f"fetch_watchlist_from_trader_async: parsed {len(watchlist)} stocks")
 
+        _logger.info("fetch_watchlist_from_trader_async: exited async with block")
         # NOTE: Simple assignment is atomic in Python (GIL), no lock needed for writes
         # The lock was causing event loop blocking when held by file watcher thread
         _cached_watchlist = watchlist
         _watchlist_cache_time = time_module.time()
 
+        _logger.info(f"fetch_watchlist_from_trader_async: completed successfully")
         print(f"[OK] Watchlist fetched from trader API: {len(watchlist)} stocks")
         return watchlist
     except httpx.ConnectError:
@@ -202,9 +211,12 @@ async def get_cached_watchlist_async(refresh: bool = False) -> Optional[List[Dic
     """
     if refresh:
         # Only actually fetch if cache is stale (older than TTL)
-        if time_module.time() - _watchlist_cache_time > _WATCHLIST_CACHE_TTL:
+        cache_age = time_module.time() - _watchlist_cache_time
+        if cache_age > _WATCHLIST_CACHE_TTL:
+            _logger.info(f"get_cached_watchlist_async: cache stale ({cache_age:.1f}s), fetching fresh")
             # Use native async fetch - no thread pool, no blocking
             await fetch_watchlist_from_trader_async()
+            _logger.info("get_cached_watchlist_async: fetch completed")
 
     # NOTE: Simple read is atomic in Python (GIL), no lock needed
     # Avoid threading.Lock in async code - blocks entire event loop
