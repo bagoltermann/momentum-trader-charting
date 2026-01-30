@@ -102,17 +102,16 @@ async def fetch_watchlist_from_trader_async() -> Optional[List[Dict]]:
         _cached_watchlist = watchlist
         _watchlist_cache_time = time_module.time()
 
-        _logger.info(f"fetch_watchlist_from_trader_async: completed successfully")
-        print(f"[OK] Watchlist fetched from trader API: {len(watchlist)} stocks")
+        _logger.info(f"fetch_watchlist_from_trader_async: completed successfully with {len(watchlist)} stocks")
         return watchlist
     except httpx.ConnectError:
-        print("[WARNING] Trader app not available - using cached watchlist")
+        _logger.warning("Trader app not available - using cached watchlist")
         return None
     except asyncio.TimeoutError:
-        print("[WARNING] Watchlist fetch timed out after 5s - using cached watchlist")
+        _logger.warning("Watchlist fetch timed out after 5s - using cached watchlist")
         return None
     except Exception as e:
-        print(f"[ERROR] Failed to fetch watchlist from trader API: {e}")
+        _logger.error(f"Failed to fetch watchlist from trader API: {e}")
         return None
 
 
@@ -137,16 +136,16 @@ def fetch_watchlist_from_trader() -> Optional[List[Dict]]:
         _cached_watchlist = watchlist
         _watchlist_cache_time = time_module.time()
 
-        print(f"[OK] Watchlist fetched from trader API: {len(watchlist)} stocks")
+        _logger.info(f"fetch_watchlist_from_trader (sync): completed with {len(watchlist)} stocks")
         return watchlist
     except httpx.ConnectError:
-        print("[WARNING] Trader app not available - using cached watchlist")
+        _logger.warning("fetch_watchlist_from_trader (sync): Trader app not available")
         return None
     except httpx.TimeoutException:
-        print("[WARNING] Watchlist fetch timed out - using cached watchlist")
+        _logger.warning("fetch_watchlist_from_trader (sync): Timeout")
         return None
     except Exception as e:
-        print(f"[ERROR] Failed to fetch watchlist from trader API: {e}")
+        _logger.error(f"fetch_watchlist_from_trader (sync): Failed - {e}")
         return None
 
 
