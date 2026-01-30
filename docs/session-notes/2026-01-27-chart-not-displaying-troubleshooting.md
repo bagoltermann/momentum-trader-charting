@@ -386,6 +386,42 @@ The `asyncio.wait_for()` wrapper is production-grade defensive coding, but it ma
   - Use `socket.AF_INET` explicitly in httpx - not easily configurable
 - **Verification:** Backend should remain responsive. No `SYN_SENT` connections in netstat. All localhost URLs should show `127.0.0.1` in logs.
 
+### 18. print() Blocking Async Event Loop on Windows (FIXED 2026-01-30)
+- **Trigger:** Normal operation - any `print()` call from async context
+- **Impact:** Backend becomes completely unresponsive. Event loop frozen (no heartbeat logged). Same symptoms as all previous hangs.
+- **Observed:** Log shows last heartbeat, then silence. Backend port LISTENING, CLOSE_WAIT buildup. No errors.
+- **Root cause:** `print()` to stdout can block the entire asyncio event loop on Windows:
+  1. All `print()` calls go to stdout, which is line-buffered by default
+  2. If console buffer is full, minimized, or in specific states, `print()` blocks waiting for buffer flush
+  3. The heartbeat loop was calling `print(msg)` every 30 seconds
+  4. When stdout blocked, the heartbeat task blocked the event loop
+  5. All other async operations froze (no errors, just silence)
+  6. Even `_logger.info()` in the same function couldn't execute because the event loop was stuck
+- **Why this is subtle:**
+  - `print()` normally returns immediately - you never expect it to block
+  - On Linux, stdout buffering is more aggressive and rarely blocks
+  - On Windows with Electron/console, the console can enter states where writes block
+  - The hang is non-deterministic - depends on console state
+- **Files:**
+  - `backend/main.py` - Heartbeat loop, startup messages
+  - `backend/services/file_watcher.py` - Status messages
+  - `backend/services/quote_relay.py` - Connection status messages
+  - `backend/services/schwab_client.py` - Configuration messages
+- **Fix:** Replace ALL `print()` calls with `logging` module:
+  ```python
+  # Before (can block event loop):
+  print(f"[HEARTBEAT] #{count} - Event loop alive, {pending} tasks")
+
+  # After (writes to file, never blocks):
+  _logger.info(f"[HEARTBEAT] #{count} - Event loop alive, {pending} tasks")
+  ```
+- **Why logging is safe:**
+  - Logging to file is buffered differently than console stdout
+  - File I/O with logging module handles blocking internally
+  - Even if file write blocks, it's in a different path than console output
+  - Can configure async logging handlers if needed (not necessary for our case)
+- **Verification:** No `print()` calls remain in backend Python files (except comments). All output goes to `logs/backend.log`.
+
 ## Debugging Checklist (Quick Reference)
 
 1. **Is backend port open?** `netstat -ano | findstr :8081 | findstr LISTENING`
