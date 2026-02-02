@@ -26,9 +26,13 @@ This is a companion charting application for the Momentum Trader project. It pro
 ### ALWAYS Update Session Notes
 After completing work or at user request, update session documentation:
 
-1. **Create dated session file**: `session-notes/YYYY-MM-DD.md`
-2. **Update index**: `session-notes-index.md` - add entry to table
-3. **File size target**: 1,000-2,000 lines per session (optimal for performance)
+1. **Check for existing session file FIRST**: Before writing, use `Read` tool or `git show HEAD:session-notes/YYYY-MM-DD.md` to check if today's file already exists with content from earlier sessions
+2. **Append to existing file**: If file exists, append new work to it rather than overwriting
+3. **Create new file only if none exists**: `session-notes/YYYY-MM-DD.md`
+4. **Update index**: `session-notes-index.md` - add entry to table
+5. **File size target**: 1,000-2,000 lines per session (optimal for performance)
+
+**CRITICAL**: The `Write` tool OVERWRITES files completely. Never use Write on session notes without first reading the existing content. Use `Edit` to append, or read first and include all existing content.
 
 ### Session File Structure
 Each session must include:
