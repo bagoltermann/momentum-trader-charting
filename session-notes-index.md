@@ -7,6 +7,7 @@ This index tracks all development sessions for the Momentum Trader Charting comp
 
 | Date | Topics | Key Changes | Status |
 |------|--------|-------------|--------|
+| 2026-02-02 | SSL Event Loop Fix + Duplicate Analysis Fix + Request Pileup Fix | httpx in thread pool (Fix #16/#19), useMemo deps fix (#21), CancelToken deduplication (#20), troubleshooting doc updated | ✅ Complete |
 | 2026-01-28 | Warrior Trading Chart Enhancements + 8 Stability Fixes | Gap % badge, volume badge, D1 High breakout alert, ErrorBoundary, timestamp tracking, async httpx client, thread pool 50 workers, launcher port-first cleanup | ✅ Complete |
 | 2026-01-27 | Backend Freeze Fix + Zombie Process Cleanup + Troubleshooting Docs | asyncio.to_thread for LLM calls, route-level cache, React timer decoupling, watchlist equality check, launcher 3-layer cleanup, semaphore timeout, Five Pillars review (tabled) | ✅ Complete |
 | 2026-01-26 | Performance Tuning (8) + TS Cleanup (5) + LLM Pattern Detection | Template bug, semaphore, cached candles, watchlist TTL, debugLog, single-pass transforms, incremental charts, VWAP bands, 36 TS errors fixed, catalyst-response mismatch v1.5.0, Ideas #2-#5 documented | ✅ Complete |
@@ -29,4 +30,4 @@ This index tracks all development sessions for the Momentum Trader Charting comp
 
 ---
 
-**Last Updated**: 2026-01-28
+**Last Updated**: 2026-02-02

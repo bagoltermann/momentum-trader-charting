@@ -388,6 +388,124 @@ The `asyncio.wait_for()` wrapper is production-grade defensive coding, but it ma
 
 ### 18. print() Blocking Async Event Loop on Windows (FIXED 2026-01-30)
 - **Trigger:** Normal operation - any `print()` call from async context
+
+### 19. httpx.AsyncClient SSL/TLS Blocking Event Loop (FIXED 2026-02-02)
+- **Trigger:** Any Schwab API request on Windows
+- **Impact:** Backend becomes completely unresponsive. Event loop frozen despite `asyncio.wait_for()` timeout wrappers.
+- **Observed:** Log shows "Starting request to https://api.schwabapi.com/..." then silence. The 15s timeout never fires. Heartbeat stops. Backend port still LISTENING.
+- **Root cause:** httpx.AsyncClient can block the asyncio event loop during SSL/TLS handshake operations on Windows:
+  1. SSL/TLS operations in httpx.AsyncClient on Windows can perform blocking I/O
+  2. `asyncio.wait_for()` timeouts cannot fire if the event loop itself is blocked
+  3. The timeout wrapper appears to work (code looks correct) but the coroutine never yields control
+  4. This is a known issue with Windows + asyncio + SSL in certain scenarios
+- **Why previous fixes didn't work:**
+  - Fresh client per request (#15) - still uses AsyncClient with SSL blocking
+  - asyncio.wait_for() wrapper (#8) - can't fire if event loop is blocked
+  - Larger thread pool (#10) - doesn't help because blocking happens in main event loop, not thread pool
+- **Files:**
+  - `backend/services/schwab_client.py` - `make_api_request()` and `_sync_request()`
+- **Fix (nuclear option):** Use synchronous `httpx.Client` inside `asyncio.to_thread()`:
+  ```python
+  def _sync_request(url: str, params: Dict, headers: Dict) -> httpx.Response:
+      """Synchronous request - run in thread pool to prevent blocking event loop."""
+      with httpx.Client(timeout=httpx.Timeout(10.0, connect=5.0), http2=False) as client:
+          response = client.get(url, params=params, headers=headers)
+          return response
+
+  async def make_api_request(url: str, params: Dict, headers: Dict):
+      response = await asyncio.wait_for(
+          asyncio.to_thread(_sync_request, url, params, headers),
+          timeout=15.0  # Hard timeout on the thread
+      )
+      return response
+  ```
+- **Why this works:**
+  - `asyncio.to_thread()` runs the sync code in the default thread pool executor
+  - SSL/TLS operations happen in a worker thread, not the event loop thread
+  - The event loop remains free to run other coroutines and process timeouts
+  - `asyncio.wait_for()` can now actually fire because the event loop isn't blocked
+  - Thread pool has 50 workers (configured in main.py), more than enough for our max 5 concurrent Schwab requests
+- **Trade-off:** Uses thread pool threads for HTTP requests (less efficient than pure async), but guarantees the event loop can never be blocked by SSL operations.
+- **Verification:** Backend should remain responsive under all conditions. Timeouts should fire correctly. Heartbeat continues logging every 30s.
+
+### 20. Watchlist Request Pileup (FIXED 2026-02-02)
+- **Trigger:** Backend slow or unresponsive, frontend polling every 5 seconds
+- **Impact:** Hundreds of concurrent requests pile up. Console shows 251+ failed watchlist requests.
+- **Observed:** `watchlistStore.ts:62 [Watchlist] Primary fetch failed: timeout of 10000ms exceeded` repeated 251+ times in quick succession.
+- **Root cause:** No request deduplication in watchlist polling:
+  1. Watchlist polls every 5 seconds with 10 second axios timeout
+  2. When backend is slow, Request 1 starts at t=0
+  3. Request 2 starts at t=5s while Request 1 still pending
+  4. Request 3 starts at t=10s while 1 and 2 still pending
+  5. Requests pile up exponentially
+  6. Each timed-out request triggers a fallback request to port 8080, doubling the load
+  7. Eventually hundreds of requests are in flight simultaneously
+- **Files:**
+  - `src/renderer/store/watchlistStore.ts` - Added CancelToken for request deduplication
+- **Fix:** Cancel any pending request before starting a new one:
+  ```typescript
+  let pendingRequest: CancelTokenSource | null = null
+
+  fetchWatchlist: async () => {
+    // Cancel any pending request to prevent pileup
+    if (pendingRequest) {
+      pendingRequest.cancel('New request supersedes')
+      pendingRequest = null
+    }
+
+    const cancelSource = axios.CancelToken.source()
+    pendingRequest = cancelSource
+
+    try {
+      const response = await apiClient.get(url, { cancelToken: cancelSource.token })
+      pendingRequest = null
+      // ... handle response
+    } catch (err) {
+      pendingRequest = null
+      if (axios.isCancel(err)) return  // Ignore cancelled requests
+      // ... error handling
+    }
+  }
+  ```
+- **Why this helps:** Only one request can be in-flight at a time. When a new poll starts, it cancels any pending request. This prevents exponential request buildup.
+- **Verification:** When backend is slow, console should show at most 1 timeout message per 5-second interval, not hundreds.
+
+### 21. Duplicate HistoricalPatternMatch Analysis (FIXED 2026-02-02)
+- **Trigger:** Normal operation - switching between stocks, watchlist/runner updates
+- **Impact:** Every pattern analysis runs twice. Console shows duplicate log entries for each symbol.
+- **Observed:**
+  ```
+  [HistoricalPatternMatch] Analyzing setup: PSIG against 28 trades
+  [HistoricalPatternMatch] Analysis result: 3 similar trades found
+  [HistoricalPatternMatch] Analyzing setup: PSIG against 28 trades  <-- duplicate
+  [HistoricalPatternMatch] Analysis result: 3 similar trades found  <-- duplicate
+  ```
+- **Root cause:** useMemo dependency array included entire arrays instead of specific values:
+  ```typescript
+  // OLD - triggers on any array change
+  const setupData = useMemo(() => { ... }, [selectedSymbol, runners, watchlist])
+  ```
+  When `runners` or `watchlist` arrays update (even if the selected symbol's data is unchanged), React creates new object references, triggering the downstream `analysis` useMemo to recompute.
+- **Files:**
+  - `src/renderer/components/panels/HistoricalPatternMatch.tsx` - useMemo dependencies
+- **Fix:** Extract specific item first, then depend only on scalar field values:
+  ```typescript
+  const runner = runners.find(r => r.symbol === selectedSymbol)
+  const watchItem = watchlist.find(w => w.symbol === selectedSymbol)
+
+  const setupData = useMemo(() => { ... }, [
+    selectedSymbol,
+    runner?.symbol,
+    runner?.current_price,
+    runner?.original_gap_percent,
+    runner?.original_catalyst,
+    watchItem?.symbol,
+    watchItem?.price,
+    // ... other scalar values
+  ])
+  ```
+- **Why this helps:** The useMemo only recomputes when the actual selected item's values change, not when unrelated items in the arrays change.
+- **Verification:** Console should show exactly one analysis log entry per symbol selection, not duplicates.
 - **Impact:** Backend becomes completely unresponsive. Event loop frozen (no heartbeat logged). Same symptoms as all previous hangs.
 - **Observed:** Log shows last heartbeat, then silence. Backend port LISTENING, CLOSE_WAIT buildup. No errors.
 - **Root cause:** `print()` to stdout can block the entire asyncio event loop on Windows:

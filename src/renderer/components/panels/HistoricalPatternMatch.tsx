@@ -307,11 +307,14 @@ export function HistoricalPatternMatch({
   }, [])
 
   // Build setup data from either runner or watchlist
+  // Only depend on the specific item's values, not the entire array references
+  const runner = runners.find(r => r.symbol === selectedSymbol)
+  const watchItem = watchlist.find(w => w.symbol === selectedSymbol)
+
   const setupData = useMemo((): SetupData | null => {
     if (!selectedSymbol) return null
 
     // Try runner first
-    const runner = runners.find(r => r.symbol === selectedSymbol)
     if (runner) {
       return {
         symbol: runner.symbol,
@@ -324,7 +327,6 @@ export function HistoricalPatternMatch({
     }
 
     // Fall back to watchlist
-    const watchItem = watchlist.find(w => w.symbol === selectedSymbol)
     if (watchItem) {
       return {
         symbol: watchItem.symbol,
@@ -337,7 +339,20 @@ export function HistoricalPatternMatch({
     }
 
     return null
-  }, [selectedSymbol, runners, watchlist])
+  }, [
+    selectedSymbol,
+    // Only re-compute when the actual selected item's relevant values change
+    runner?.symbol,
+    runner?.current_price,
+    runner?.original_gap_percent,
+    runner?.original_catalyst,
+    watchItem?.symbol,
+    watchItem?.price,
+    watchItem?.gap_percent,
+    watchItem?.llm_analysis?.catalyst_type,
+    watchItem?.float,
+    watchItem?.volume_ratio
+  ])
 
   const analysis = useMemo(() => {
     if (!setupData || tradeHistory.length === 0) {
