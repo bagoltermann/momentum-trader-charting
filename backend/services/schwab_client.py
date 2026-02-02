@@ -130,34 +130,53 @@ def _get_semaphore() -> asyncio.Semaphore:
 # Less efficient but more robust for long-running servers on Windows
 
 
-async def make_api_request(url: str, params: Dict, headers: Dict) -> Optional[httpx.Response]:
+def _sync_request(url: str, params: Dict, headers: Dict) -> httpx.Response:
     """
-    Make an API request using httpx.
+    Synchronous request using httpx.Client.
 
-    Uses fresh client per request to avoid connection pool corruption issues.
-    Less efficient but more robust for long-running server on Windows.
+    Run in thread pool to prevent blocking the asyncio event loop.
+    This is the nuclear option for Windows SSL/TLS hangs.
     """
-    _logger.info(f"make_api_request: Starting request to {url}")
-
-    # Create fresh client for each request to avoid connection pool issues
-    # This prevents hung connections from blocking future requests
-    async with httpx.AsyncClient(
+    with httpx.Client(
         timeout=httpx.Timeout(10.0, connect=5.0),
         http2=False
     ) as client:
-        try:
-            response = await client.get(url, params=params, headers=headers)
-            _logger.info(f"make_api_request: Got response status {response.status_code}")
-            return response
-        except httpx.TimeoutException:
-            _logger.warning(f"make_api_request: Timeout")
-            raise asyncio.TimeoutError()
-        except httpx.HTTPError as e:
-            _logger.warning(f"httpx request failed: {e}")
-            raise
-        except Exception as e:
-            _logger.warning(f"API request failed: {e}")
-            raise
+        response = client.get(url, params=params, headers=headers)
+        return response
+
+
+async def make_api_request(url: str, params: Dict, headers: Dict) -> Optional[httpx.Response]:
+    """
+    Make an API request using httpx in a thread pool.
+
+    CRITICAL: On Windows, httpx.AsyncClient can block the event loop during
+    SSL/TLS operations. Running in a thread pool isolates this blocking.
+
+    The thread pool has 50 workers (configured in main.py), so this is safe
+    for our concurrency levels (max 5 concurrent Schwab requests).
+    """
+    _logger.info(f"make_api_request: Starting request to {url}")
+
+    try:
+        # Run sync httpx in thread pool - prevents SSL/TLS from blocking event loop
+        response = await asyncio.wait_for(
+            asyncio.to_thread(_sync_request, url, params, headers),
+            timeout=15.0  # Hard timeout on the thread
+        )
+        _logger.info(f"make_api_request: Got response status {response.status_code}")
+        return response
+    except asyncio.TimeoutError:
+        _logger.warning(f"make_api_request: Hard timeout after 15s")
+        raise
+    except httpx.TimeoutException:
+        _logger.warning(f"make_api_request: httpx timeout")
+        raise asyncio.TimeoutError()
+    except httpx.HTTPError as e:
+        _logger.warning(f"httpx request failed: {e}")
+        raise
+    except Exception as e:
+        _logger.warning(f"API request failed: {e}")
+        raise
 
 
 async def close_shared_client():
