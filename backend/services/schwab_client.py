@@ -284,6 +284,7 @@ class ChartSchwabClient:
                         'symbol': symbol,
                         'frequencyType': frequency_type,
                         'frequency': frequency,
+                        'needExtendedHoursData': 'true',
                     }
 
                     if frequency_type == "minute" and today_only:
