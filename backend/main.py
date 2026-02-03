@@ -9,6 +9,8 @@ Provides:
 import sys
 import asyncio
 import platform
+import threading
+import time as time_module
 from concurrent.futures import ThreadPoolExecutor
 
 # Fix for Windows asyncio ProactorEventLoop crash (AssertionError: _sockets is not None)
@@ -51,15 +53,44 @@ app.include_router(router, prefix="/api")
 
 quote_relay = None
 _heartbeat_count = 0
+_last_heartbeat_time = 0.0  # Updated by async heartbeat, checked by watchdog thread
+
+
+def _watchdog_thread():
+    """
+    Independent thread that detects event loop freezes.
+
+    The async heartbeat runs ON the event loop, so it can't detect when the
+    event loop itself is frozen. This thread runs independently and logs a
+    warning if the heartbeat hasn't fired within the expected interval.
+    """
+    import time
+    _wd_logger = logging.getLogger('watchdog')
+    global _last_heartbeat_time
+    _last_heartbeat_time = time.time()  # Initialize
+
+    while True:
+        time.sleep(45)  # Check every 45s (heartbeat is 30s)
+        elapsed = time.time() - _last_heartbeat_time
+        if elapsed > 90:  # 3 missed heartbeats = definitely frozen
+            _wd_logger.error(
+                f"[WATCHDOG] Event loop appears FROZEN - no heartbeat for {elapsed:.0f}s. "
+                f"Last heartbeat was {elapsed:.0f}s ago."
+            )
+        elif elapsed > 60:  # 2 missed heartbeats = warning
+            _wd_logger.warning(
+                f"[WATCHDOG] Event loop may be stalled - no heartbeat for {elapsed:.0f}s"
+            )
 
 
 async def _heartbeat_loop():
     """Log heartbeat every 30s to detect event loop blocking"""
-    global _heartbeat_count
+    global _heartbeat_count, _last_heartbeat_time
     _hb_logger = logging.getLogger('heartbeat')
     while True:
         await asyncio.sleep(30)
         _heartbeat_count += 1
+        _last_heartbeat_time = time_module.time()
         # Count pending tasks to detect task buildup
         all_tasks = asyncio.all_tasks()
         pending = len([t for t in all_tasks if not t.done()])
@@ -105,6 +136,11 @@ async def startup_event():
 
     # Start heartbeat task to detect event loop blocking
     asyncio.create_task(_heartbeat_loop())
+
+    # Start watchdog thread - independent of event loop, detects freezes
+    wd_thread = threading.Thread(target=_watchdog_thread, daemon=True, name="Watchdog")
+    wd_thread.start()
+    _logger.info("[OK] Watchdog thread started")
 
 
 @app.on_event("shutdown")

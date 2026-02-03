@@ -130,41 +130,52 @@ def _get_semaphore() -> asyncio.Semaphore:
 # Less efficient but more robust for long-running servers on Windows
 
 
-def _sync_request(url: str, params: Dict, headers: Dict) -> httpx.Response:
+def _sync_request(url: str, params: Dict, headers: Dict) -> Dict:
     """
-    Synchronous request using httpx.Client.
+    Synchronous request using httpx.Client - returns parsed dict, not Response.
 
     Run in thread pool to prevent blocking the asyncio event loop.
-    This is the nuclear option for Windows SSL/TLS hangs.
+    CRITICAL: We parse the response and extract all data INSIDE the thread
+    so no httpx Response/socket objects cross the thread boundary back to
+    the event loop. Returning live socket objects can cause
+    WindowsSelectorEventLoop to deadlock when multiple threads signal
+    completion simultaneously.
     """
     with httpx.Client(
         timeout=httpx.Timeout(10.0, connect=5.0),
         http2=False
     ) as client:
         response = client.get(url, params=params, headers=headers)
-        return response
+        # Extract everything inside the thread - no socket objects cross back
+        result = {
+            'status_code': response.status_code,
+            'json': response.json() if response.status_code == 200 else None,
+            'text': response.text if response.status_code != 200 else None,
+        }
+        return result
 
 
-async def make_api_request(url: str, params: Dict, headers: Dict) -> Optional[httpx.Response]:
+async def make_api_request(url: str, params: Dict, headers: Dict) -> Optional[Dict]:
     """
     Make an API request using httpx in a thread pool.
 
+    Returns a dict with 'status_code', 'json', 'text' keys (not an httpx.Response).
+
     CRITICAL: On Windows, httpx.AsyncClient can block the event loop during
     SSL/TLS operations. Running in a thread pool isolates this blocking.
-
-    The thread pool has 50 workers (configured in main.py), so this is safe
-    for our concurrency levels (max 5 concurrent Schwab requests).
+    Response is fully parsed inside the thread to avoid crossing socket
+    objects back to the event loop (prevents WindowsSelectorEventLoop deadlock).
     """
     _logger.info(f"make_api_request: Starting request to {url}")
 
     try:
         # Run sync httpx in thread pool - prevents SSL/TLS from blocking event loop
-        response = await asyncio.wait_for(
+        result = await asyncio.wait_for(
             asyncio.to_thread(_sync_request, url, params, headers),
             timeout=15.0  # Hard timeout on the thread
         )
-        _logger.info(f"make_api_request: Got response status {response.status_code}")
-        return response
+        _logger.info(f"make_api_request: Got response status {result['status_code']}")
+        return result
     except asyncio.TimeoutError:
         _logger.warning(f"make_api_request: Hard timeout after 15s")
         raise
@@ -314,8 +325,11 @@ class ChartSchwabClient:
                         timeout=15.0  # Hard timeout - will raise asyncio.TimeoutError if exceeded
                     )
 
+                    # make_api_request returns a dict: {status_code, json, text}
+                    status_code = response['status_code']
+
                     # Handle rate limiting (429) with retry
-                    if response.status_code == 429:
+                    if status_code == 429:
                         if attempt < max_retries - 1:
                             delay = base_delay * (2 ** attempt)
                             _logger.warning(f"get_price_history({symbol}) rate limited, retrying in {delay}s")
@@ -325,17 +339,17 @@ class ChartSchwabClient:
                         return None
 
                     # Handle server errors (500-504) with retry
-                    if response.status_code >= 500:
+                    if status_code >= 500:
                         if attempt < max_retries - 1:
                             delay = base_delay * (2 ** attempt)
-                            _logger.warning(f"get_price_history({symbol}) server error {response.status_code}, retrying in {delay}s")
+                            _logger.warning(f"get_price_history({symbol}) server error {status_code}, retrying in {delay}s")
                             await asyncio.sleep(delay)
                             continue
                         _circuit_breaker.record_failure()
                         return None
 
-                    if response.status_code != 200:
-                        _logger.warning(f"get_price_history({symbol}) error: {response.status_code}")
+                    if status_code != 200:
+                        _logger.warning(f"get_price_history({symbol}) error: {status_code}")
                         return None
 
                     # Success - record it and parse response
@@ -344,7 +358,7 @@ class ChartSchwabClient:
                     elapsed = time_module.time() - start_time
                     _logger.info(f"get_price_history({symbol}) completed in {elapsed:.2f}s")
 
-                    data = response.json()
+                    data = response['json']
                     candles = data.get('candles', [])
 
                     result = [
@@ -409,14 +423,16 @@ class ChartSchwabClient:
                 timeout=10.0  # Hard timeout for quotes
             )
 
-            if response.status_code != 200:
-                _logger.warning(f"get_quote({symbol}) error: {response.status_code}")
-                if response.status_code >= 500:
+            # make_api_request returns a dict: {status_code, json, text}
+            status_code = response['status_code']
+            if status_code != 200:
+                _logger.warning(f"get_quote({symbol}) error: {status_code}")
+                if status_code >= 500:
                     _circuit_breaker.record_failure()
                 return None
 
             _circuit_breaker.record_success()
-            data = response.json()
+            data = response['json']
             return data.get(symbol, {}).get('quote', {})
 
         except asyncio.CancelledError:
