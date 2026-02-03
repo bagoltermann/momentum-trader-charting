@@ -506,6 +506,54 @@ The `asyncio.wait_for()` wrapper is production-grade defensive coding, but it ma
   ```
 - **Why this helps:** The useMemo only recomputes when the actual selected item's values change, not when unrelated items in the arrays change.
 - **Verification:** Console should show exactly one analysis log entry per symbol selection, not duplicates.
+- **Note:** React StrictMode (`src/renderer/index.tsx:7`) double-renders in development mode, which will still cause duplicate console.log entries. This is harmless and doesn't occur in production builds.
+
+### 22. Thread Pool Response Object Deadlock (FIXED 2026-02-03)
+- **Trigger:** Multiple concurrent Schwab API requests completing simultaneously (3+ threads returning at same time)
+- **Impact:** Backend becomes completely unresponsive. Event loop frozen (no heartbeat logged). Same symptoms as all previous hangs.
+- **Observed:** Log shows three "HTTP Request: GET ... 200 OK" entries at the exact same timestamp (09:43:33), but NO subsequent "Got response status 200" or "completed in X.Xs" entries. Heartbeat stops. Backend port still LISTENING, CLOSE_WAIT connections accumulate. Watchdog thread (if present) would log the stall.
+- **Root cause:** `_sync_request()` was returning `httpx.Response` objects across thread boundaries:
+  1. `asyncio.to_thread()` runs `_sync_request` in thread pool workers
+  2. `_sync_request` returned an `httpx.Response` object containing live socket/connection references
+  3. When multiple threads completed simultaneously, all tried to signal the `WindowsSelectorEventLoop`
+  4. The selector deadlocked trying to process multiple cross-thread results with socket objects
+  5. The event loop never resumed - `await asyncio.to_thread(...)` never returned
+  6. Even though the HTTP requests succeeded (httpx logged "200 OK" from within the threads), the results never reached the calling coroutines
+- **Why this is intermittent:**
+  - Requires 3+ threads to complete at the exact same moment
+  - With only 1-2 concurrent requests, the race condition doesn't trigger
+  - Worked fine for 1+ hour (540+ successful requests) before triggering
+  - The app processes hundreds of requests successfully before the specific timing alignment occurs
+- **Files:**
+  - `backend/services/schwab_client.py` - `_sync_request()` and `make_api_request()`
+  - `backend/main.py` - Watchdog thread addition
+- **Fix:** Parse response data INSIDE the thread pool worker, return plain dict instead of httpx.Response:
+  ```python
+  def _sync_request(url: str, params: Dict, headers: Dict) -> Dict:
+      with httpx.Client(timeout=httpx.Timeout(10.0, connect=5.0), http2=False) as client:
+          response = client.get(url, params=params, headers=headers)
+          # Extract everything inside the thread - no socket objects cross back
+          return {
+              'status_code': response.status_code,
+              'json': response.json() if response.status_code == 200 else None,
+              'text': response.text if response.status_code != 200 else None,
+          }
+  ```
+  All callers updated to use dict access (`response['status_code']`) instead of attribute access (`response.status_code`).
+- **Additional fix:** Added independent watchdog thread that runs outside the event loop:
+  ```python
+  def _watchdog_thread():
+      while True:
+          time.sleep(45)
+          elapsed = time.time() - _last_heartbeat_time
+          if elapsed > 90:
+              _wd_logger.error(f"[WATCHDOG] Event loop appears FROZEN - no heartbeat for {elapsed:.0f}s")
+          elif elapsed > 60:
+              _wd_logger.warning(f"[WATCHDOG] Event loop may be stalled - no heartbeat for {elapsed:.0f}s")
+  ```
+- **Why the watchdog helps:** The existing heartbeat runs ON the event loop, so it can't detect when the loop itself freezes. The watchdog thread runs independently and logs warnings/errors that appear in `logs/backend.log` even when the event loop is dead.
+- **Verification:** Backend should never freeze when multiple Schwab API requests complete simultaneously. If a freeze does occur, the watchdog will log `[WATCHDOG] Event loop appears FROZEN` within 90 seconds.
+
 - **Impact:** Backend becomes completely unresponsive. Event loop frozen (no heartbeat logged). Same symptoms as all previous hangs.
 - **Observed:** Log shows last heartbeat, then silence. Backend port LISTENING, CLOSE_WAIT buildup. No errors.
 - **Root cause:** `print()` to stdout can block the entire asyncio event loop on Windows:
