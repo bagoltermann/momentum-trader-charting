@@ -61,26 +61,40 @@ def _watchdog_thread():
     Independent thread that detects event loop freezes.
 
     The async heartbeat runs ON the event loop, so it can't detect when the
-    event loop itself is frozen. This thread runs independently and logs a
-    warning if the heartbeat hasn't fired within the expected interval.
+    event loop itself is frozen. This thread runs independently and writes
+    directly to a separate log file (NOT using the logging module, which has
+    a threading.Lock that can deadlock if the event loop thread holds it).
     """
     import time
-    _wd_logger = logging.getLogger('watchdog')
+    from pathlib import Path
     global _last_heartbeat_time
     _last_heartbeat_time = time.time()  # Initialize
+
+    # Use a SEPARATE log file with direct writes - no logging module locks
+    watchdog_log = Path(__file__).parent.parent / 'logs' / 'watchdog.log'
+    watchdog_log.parent.mkdir(exist_ok=True)
 
     while True:
         time.sleep(45)  # Check every 45s (heartbeat is 30s)
         elapsed = time.time() - _last_heartbeat_time
         if elapsed > 90:  # 3 missed heartbeats = definitely frozen
-            _wd_logger.error(
-                f"[WATCHDOG] Event loop appears FROZEN - no heartbeat for {elapsed:.0f}s. "
-                f"Last heartbeat was {elapsed:.0f}s ago."
-            )
+            ts = time.strftime('%Y-%m-%d %H:%M:%S')
+            msg = f"{ts} [ERROR] [WATCHDOG] Event loop appears FROZEN - no heartbeat for {elapsed:.0f}s\n"
+            try:
+                with open(watchdog_log, 'a') as f:
+                    f.write(msg)
+                    f.flush()
+            except Exception:
+                pass
         elif elapsed > 60:  # 2 missed heartbeats = warning
-            _wd_logger.warning(
-                f"[WATCHDOG] Event loop may be stalled - no heartbeat for {elapsed:.0f}s"
-            )
+            ts = time.strftime('%Y-%m-%d %H:%M:%S')
+            msg = f"{ts} [WARNING] [WATCHDOG] Event loop may be stalled - no heartbeat for {elapsed:.0f}s\n"
+            try:
+                with open(watchdog_log, 'a') as f:
+                    f.write(msg)
+                    f.flush()
+            except Exception:
+                pass
 
 
 async def _heartbeat_loop():

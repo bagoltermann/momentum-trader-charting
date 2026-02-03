@@ -130,16 +130,19 @@ def _get_semaphore() -> asyncio.Semaphore:
 # Less efficient but more robust for long-running servers on Windows
 
 
+from concurrent.futures import ThreadPoolExecutor as _TPE, Future
+
+# Dedicated thread pool for Schwab API requests - separate from asyncio's default executor
+# to avoid any interaction with WindowsSelectorEventLoop's thread notification mechanism
+_api_thread_pool = _TPE(max_workers=10, thread_name_prefix="schwab_api")
+
+
 def _sync_request(url: str, params: Dict, headers: Dict) -> Dict:
     """
     Synchronous request using httpx.Client - returns parsed dict, not Response.
 
-    Run in thread pool to prevent blocking the asyncio event loop.
-    CRITICAL: We parse the response and extract all data INSIDE the thread
-    so no httpx Response/socket objects cross the thread boundary back to
-    the event loop. Returning live socket objects can cause
-    WindowsSelectorEventLoop to deadlock when multiple threads signal
-    completion simultaneously.
+    Run in a dedicated thread pool. Response is fully parsed inside the thread
+    so only plain Python dicts cross the thread boundary.
     """
     with httpx.Client(
         timeout=httpx.Timeout(10.0, connect=5.0),
@@ -157,28 +160,40 @@ def _sync_request(url: str, params: Dict, headers: Dict) -> Dict:
 
 async def make_api_request(url: str, params: Dict, headers: Dict) -> Optional[Dict]:
     """
-    Make an API request using httpx in a thread pool.
+    Make an API request using httpx in a dedicated thread pool.
 
-    Returns a dict with 'status_code', 'json', 'text' keys (not an httpx.Response).
+    Returns a dict with 'status_code', 'json', 'text' keys.
 
-    CRITICAL: On Windows, httpx.AsyncClient can block the event loop during
-    SSL/TLS operations. Running in a thread pool isolates this blocking.
-    Response is fully parsed inside the thread to avoid crossing socket
-    objects back to the event loop (prevents WindowsSelectorEventLoop deadlock).
+    CRITICAL: Uses polling (asyncio.sleep + Future.done()) instead of
+    asyncio.to_thread/run_in_executor to avoid WindowsSelectorEventLoop
+    deadlock. The selector's call_soon_threadsafe() mechanism can deadlock
+    when multiple threads signal completion simultaneously on Windows.
+    By polling, the event loop never needs to be woken by a thread.
     """
     _logger.info(f"make_api_request: Starting request to {url}")
 
+    # Submit to dedicated thread pool (not asyncio's executor)
+    future: Future = _api_thread_pool.submit(_sync_request, url, params, headers)
+
+    # Poll for completion instead of using asyncio's thread notification
+    # This avoids call_soon_threadsafe() which can deadlock WindowsSelectorEventLoop
+    start = time_module.time()
+    timeout = 15.0
+    poll_interval = 0.05  # 50ms polling - responsive enough for API calls
+
+    while not future.done():
+        elapsed = time_module.time() - start
+        if elapsed > timeout:
+            future.cancel()
+            _logger.warning(f"make_api_request: Hard timeout after {timeout}s")
+            raise asyncio.TimeoutError()
+        await asyncio.sleep(poll_interval)
+
+    # Future is done - get result (may raise if thread had an exception)
     try:
-        # Run sync httpx in thread pool - prevents SSL/TLS from blocking event loop
-        result = await asyncio.wait_for(
-            asyncio.to_thread(_sync_request, url, params, headers),
-            timeout=15.0  # Hard timeout on the thread
-        )
+        result = future.result(timeout=0)  # Already done, just get it
         _logger.info(f"make_api_request: Got response status {result['status_code']}")
         return result
-    except asyncio.TimeoutError:
-        _logger.warning(f"make_api_request: Hard timeout after 15s")
-        raise
     except httpx.TimeoutException:
         _logger.warning(f"make_api_request: httpx timeout")
         raise asyncio.TimeoutError()
