@@ -149,8 +149,8 @@ async def get_trade_history():
     if not outcomes_path.exists():
         return []
 
-    trades = []
-    try:
+    def _read_trades():
+        trades = []
         with open(outcomes_path, 'r') as f:
             for line in f:
                 line = line.strip()
@@ -160,6 +160,10 @@ async def get_trade_history():
                         trades.append(trade)
                     except json.JSONDecodeError:
                         continue
+        return trades
+
+    try:
+        trades = await asyncio.to_thread(_read_trades)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load trade history: {e}")
 
@@ -279,12 +283,15 @@ async def ws_quotes(websocket: WebSocket):
         return
 
     queue: asyncio.Queue = asyncio.Queue()
+    loop = asyncio.get_event_loop()
 
     def on_quote(data):
-        queue.put_nowait(data)
+        # Called from QuoteRelay's SocketIO thread — must use call_soon_threadsafe
+        # because asyncio.Queue is NOT thread-safe (corrupts internal deque)
+        loop.call_soon_threadsafe(queue.put_nowait, data)
 
     def on_status(data):
-        queue.put_nowait(data)
+        loop.call_soon_threadsafe(queue.put_nowait, data)
 
     _quote_relay.add_callback(on_quote)
     _quote_relay.add_status_callback(on_status)

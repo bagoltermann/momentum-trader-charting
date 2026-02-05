@@ -34,6 +34,11 @@ logging.basicConfig(
 )
 _logger = logging.getLogger('schwab_client')
 
+# Suppress httpx internal logging - it runs inside thread pool workers and
+# contends for the logging FileHandler's threading.RLock with the event loop thread.
+# This lock contention is a suspected cause of event loop freezes on Windows.
+logging.getLogger('httpx').setLevel(logging.WARNING)
+logging.getLogger('httpcore').setLevel(logging.WARNING)
 
 # Server-side cache for candle data (reduces Schwab API calls)
 # Cache key: "symbol:frequency_type:frequency" -> (timestamp, data)

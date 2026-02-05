@@ -7,6 +7,7 @@ This index tracks all development sessions for the Momentum Trader Charting comp
 
 | Date | Topics | Key Changes | Status |
 |------|--------|-------------|--------|
+| 2026-02-04 | Event Loop Freeze Diagnosis + Instrumentation | Fix #23 (call_soon_threadsafe) deployed but freeze recurred; added thread stack dump to watchdog, asyncio debug mode, suppressed httpx logging to reduce lock contention; investigating logging RLock as root cause | 🔄 In Progress |
 | 2026-02-03 | Thread Pool Deadlock Fix + Watchdog Thread | Fix #22: Return dict instead of httpx.Response from thread pool (prevents WindowsSelectorEventLoop deadlock), watchdog thread for freeze detection, troubleshooting doc updated | ✅ Complete |
 | 2026-02-02 | SSL Event Loop Fix + Duplicate Analysis Fix + Request Pileup Fix + Pre-Market Data | httpx in thread pool (Fix #16/#19), useMemo deps fix (#21), CancelToken deduplication (#20), needExtendedHoursData for pre-market candles, troubleshooting doc updated | ✅ Complete |
 | 2026-01-28 | Warrior Trading Chart Enhancements + 8 Stability Fixes | Gap % badge, volume badge, D1 High breakout alert, ErrorBoundary, timestamp tracking, async httpx client, thread pool 50 workers, launcher port-first cleanup | ✅ Complete |
@@ -31,4 +32,4 @@ This index tracks all development sessions for the Momentum Trader Charting comp
 
 ---
 
-**Last Updated**: 2026-02-03
+**Last Updated**: 2026-02-04

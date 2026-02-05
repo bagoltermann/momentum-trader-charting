@@ -64,8 +64,13 @@ def _watchdog_thread():
     event loop itself is frozen. This thread runs independently and writes
     directly to a separate log file (NOT using the logging module, which has
     a threading.Lock that can deadlock if the event loop thread holds it).
+
+    When a freeze is detected, dumps ALL thread stack traces to identify
+    exactly what the event loop thread is stuck on.
     """
     import time
+    import traceback
+    import sys as _sys
     from pathlib import Path
     global _last_heartbeat_time
     _last_heartbeat_time = time.time()  # Initialize
@@ -73,20 +78,35 @@ def _watchdog_thread():
     # Use a SEPARATE log file with direct writes - no logging module locks
     watchdog_log = Path(__file__).parent.parent / 'logs' / 'watchdog.log'
     watchdog_log.parent.mkdir(exist_ok=True)
+    _stack_dumped = False  # Only dump stacks once per freeze
 
     while True:
-        time.sleep(45)  # Check every 45s (heartbeat is 30s)
+        time.sleep(15)  # Check every 15s for faster detection
         elapsed = time.time() - _last_heartbeat_time
-        if elapsed > 90:  # 3 missed heartbeats = definitely frozen
+        if elapsed > 60:  # 2 missed heartbeats = frozen
             ts = time.strftime('%Y-%m-%d %H:%M:%S')
-            msg = f"{ts} [ERROR] [WATCHDOG] Event loop appears FROZEN - no heartbeat for {elapsed:.0f}s\n"
+            msg = f"{ts} [ERROR] [WATCHDOG] Event loop FROZEN - no heartbeat for {elapsed:.0f}s\n"
             try:
                 with open(watchdog_log, 'a') as f:
                     f.write(msg)
+                    # Dump all thread stacks on FIRST detection only
+                    if not _stack_dumped:
+                        _stack_dumped = True
+                        f.write(f"{ts} [ERROR] [WATCHDOG] === THREAD STACK DUMP ===\n")
+                        for thread_id, frame in _sys._current_frames().items():
+                            # Find thread name
+                            thread_name = "Unknown"
+                            for t in threading.enumerate():
+                                if t.ident == thread_id:
+                                    thread_name = t.name
+                                    break
+                            f.write(f"\n--- Thread {thread_id} ({thread_name}) ---\n")
+                            f.write("".join(traceback.format_stack(frame)))
+                        f.write(f"\n{ts} [ERROR] [WATCHDOG] === END STACK DUMP ===\n")
                     f.flush()
             except Exception:
                 pass
-        elif elapsed > 60:  # 2 missed heartbeats = warning
+        elif elapsed > 45:  # 1.5 missed heartbeats = warning
             ts = time.strftime('%Y-%m-%d %H:%M:%S')
             msg = f"{ts} [WARNING] [WATCHDOG] Event loop may be stalled - no heartbeat for {elapsed:.0f}s\n"
             try:
@@ -95,6 +115,9 @@ def _watchdog_thread():
                     f.flush()
             except Exception:
                 pass
+        else:
+            # Reset stack dump flag when event loop recovers
+            _stack_dumped = False
 
 
 async def _heartbeat_loop():
@@ -123,6 +146,10 @@ async def startup_event():
     # LLM validations use asyncio.to_thread() with 60s timeouts - can saturate default pool
     loop = asyncio.get_event_loop()
     loop.set_default_executor(_thread_pool)
+    # Enable slow callback detection to catch what's blocking the event loop
+    # Logs any callback taking >1s (only in debug mode)
+    loop.set_debug(True)
+    loop.slow_callback_duration = 1.0
     _logger.info("[OK] Thread pool configured: 50 workers")
     _logger.info(f"[STARTUP] Event loop: {type(loop).__name__}")
 

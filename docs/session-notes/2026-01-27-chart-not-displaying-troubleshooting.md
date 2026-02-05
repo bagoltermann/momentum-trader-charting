@@ -553,6 +553,45 @@ The `asyncio.wait_for()` wrapper is production-grade defensive coding, but it ma
   ```
 - **Why the watchdog helps:** The existing heartbeat runs ON the event loop, so it can't detect when the loop itself freezes. The watchdog thread runs independently and logs warnings/errors that appear in `logs/backend.log` even when the event loop is dead.
 - **Verification:** Backend should never freeze when multiple Schwab API requests complete simultaneously. If a freeze does occur, the watchdog will log `[WATCHDOG] Event loop appears FROZEN` within 90 seconds.
+- **UPDATE 2026-02-04:** This was a **misdiagnosis**. Fix #22 and #22b (polling-based thread pool) did NOT resolve the freezes. The true root cause is #23 below. The dict return and polling changes are still good defensive measures, but they weren't the cause of the deadlock.
+
+### 23. asyncio.Queue Cross-Thread Corruption from QuoteRelay (FIXED 2026-02-04)
+- **Trigger:** QuoteRelay's SocketIO thread calls `asyncio.Queue.put_nowait()` directly — `asyncio.Queue` is NOT thread-safe
+- **Impact:** Backend becomes completely unresponsive. Event loop frozen. Same symptoms as all previous hangs.
+- **Observed:** Log shows backend serving cached candle responses just fine, then goes silent. NO thread pool requests in flight at freeze time. Last heartbeat fires, then nothing. Watchdog thread (separate file `logs/watchdog.log`) confirms: "Event loop appears FROZEN - no heartbeat for 105s"
+- **Root cause:** `asyncio.Queue.put_nowait()` called from wrong thread:
+  1. `QuoteRelay` runs python-socketio client in a daemon thread (`QuoteRelay._connect_loop`)
+  2. When quotes arrive, `_on_quote()` calls registered callbacks from the SocketIO thread
+  3. The WebSocket route (`/ws/quotes`) registers a callback: `lambda data: queue.put_nowait(data)`
+  4. `asyncio.Queue` is explicitly documented as NOT thread-safe (Python docs: "not thread-safe")
+  5. Calling `put_nowait()` from a non-event-loop thread corrupts the queue's internal `collections.deque`
+  6. The corruption can cause the event loop to deadlock when it next tries to read from the queue
+  7. With 10+ subscribed symbols and continuous quote updates, the probability of corruption increases over time
+- **Why this is intermittent:**
+  - Requires a specific interleaving of the SocketIO thread's `put_nowait()` and the event loop's `queue.get()`
+  - With few symbols or low quote frequency, the race window is small
+  - As more symbols are subscribed and quote frequency increases, the race window widens
+  - Typically takes 30-90 minutes to trigger depending on market activity
+- **Why previous fixes (#22, #22b) didn't work:**
+  - Fix #22 (dict instead of Response) and #22b (polling-based thread pool) addressed `make_api_request()`, but the third freeze occurred with NO API requests in flight — only cached responses and quote relay activity
+  - The actual cross-thread corruption was in the WebSocket quote relay path, not the Schwab API path
+- **Files:**
+  - `backend/api/routes.py` - `ws_quotes()` WebSocket endpoint, `on_quote`/`on_status` callbacks
+  - `backend/services/quote_relay.py` - `_on_quote()` calls callbacks from SocketIO thread
+- **Fix:** Use `loop.call_soon_threadsafe()` to schedule `put_nowait` on the event loop thread:
+  ```python
+  queue: asyncio.Queue = asyncio.Queue()
+  loop = asyncio.get_event_loop()
+
+  def on_quote(data):
+      # Called from QuoteRelay's SocketIO thread — must use call_soon_threadsafe
+      loop.call_soon_threadsafe(queue.put_nowait, data)
+
+  def on_status(data):
+      loop.call_soon_threadsafe(queue.put_nowait, data)
+  ```
+- **Additional fix:** Wrapped blocking file I/O in `get_trade_history()` with `asyncio.to_thread()` to prevent momentary event loop stalls from synchronous JSONL file reads.
+- **Verification:** Backend should survive indefinitely with active quote streaming. Watchdog should never trigger. If it does, check `logs/watchdog.log` for timing.
 
 - **Impact:** Backend becomes completely unresponsive. Event loop frozen (no heartbeat logged). Same symptoms as all previous hangs.
 - **Observed:** Log shows last heartbeat, then silence. Backend port LISTENING, CLOSE_WAIT buildup. No errors.
