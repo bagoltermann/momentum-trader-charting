@@ -34,11 +34,60 @@ logging.basicConfig(
 )
 _logger = logging.getLogger('schwab_client')
 
-# Suppress httpx internal logging - it runs inside thread pool workers and
-# contends for the logging FileHandler's threading.RLock with the event loop thread.
-# This lock contention is a suspected cause of event loop freezes on Windows.
-logging.getLogger('httpx').setLevel(logging.WARNING)
-logging.getLogger('httpcore').setLevel(logging.WARNING)
+# Fix #24: Redirect ALL third-party loggers to file only (no stdout/stderr)
+# The websockets library logs "connection closed" via stream.write() to stdout,
+# which can block indefinitely on Windows when console buffer is full/stalled.
+# Stack trace from freeze showed MainThread stuck at:
+#   File "...\websockets\legacy\server.py", line 263, in handler
+#       self.logger.info("connection closed")
+#   File "...\logging\__init__.py", line 1163, in emit
+#       stream.write(msg + self.terminator)
+#
+# Solution: Remove StreamHandlers from third-party loggers, keep only FileHandler
+
+def _configure_third_party_logging():
+    """Configure third-party loggers to use file only, no stdout."""
+    # Get the root logger's file handler
+    root_handlers = logging.getLogger().handlers
+    file_handler = None
+    for h in root_handlers:
+        if isinstance(h, logging.FileHandler):
+            file_handler = h
+            break
+
+    # Third-party loggers that may write to stdout and block the event loop
+    third_party_loggers = [
+        'websockets',
+        'websockets.client',
+        'websockets.server',
+        'websockets.protocol',
+        'uvicorn',
+        'uvicorn.error',
+        'uvicorn.access',
+        'httpx',
+        'httpcore',
+        'socketio',
+        'engineio',
+    ]
+
+    for logger_name in third_party_loggers:
+        logger = logging.getLogger(logger_name)
+        # Remove all existing handlers (especially StreamHandler to stdout)
+        logger.handlers = []
+        # Don't propagate to root (which might have StreamHandler)
+        logger.propagate = False
+        # Add only the file handler if we have one
+        if file_handler:
+            logger.addHandler(file_handler)
+        # Set appropriate level - websockets is very chatty
+        if logger_name.startswith('websockets'):
+            logger.setLevel(logging.WARNING)  # Only warnings and errors
+        elif logger_name.startswith('http'):
+            logger.setLevel(logging.WARNING)  # Suppress httpx noise
+        else:
+            logger.setLevel(logging.INFO)  # Keep INFO for uvicorn, socketio
+
+_configure_third_party_logging()
 
 # Server-side cache for candle data (reduces Schwab API calls)
 # Cache key: "symbol:frequency_type:frequency" -> (timestamp, data)

@@ -593,6 +593,75 @@ The `asyncio.wait_for()` wrapper is production-grade defensive coding, but it ma
 - **Additional fix:** Wrapped blocking file I/O in `get_trade_history()` with `asyncio.to_thread()` to prevent momentary event loop stalls from synchronous JSONL file reads.
 - **Verification:** Backend should survive indefinitely with active quote streaming. Watchdog should never trigger. If it does, check `logs/watchdog.log` for timing.
 
+### 24. websockets Library Logging to stdout Blocks Event Loop (FIXED 2026-02-05)
+- **Trigger:** WebSocket connection closes (client disconnect, network hiccup, symbol change)
+- **Impact:** Backend becomes completely unresponsive. Event loop frozen. Same symptoms as all previous hangs.
+- **Observed:** Log shows last heartbeat at 08:30:33, then silence. Watchdog thread captures stack dump showing:
+  ```
+  --- Thread 83576 (MainThread) ---
+    File "...\websockets\legacy\server.py", line 263, in handler
+        self.logger.info("connection closed")
+    File "...\logging\__init__.py", line 1163, in emit
+        stream.write(msg + self.terminator)
+  ```
+- **Root cause:** `websockets` library has its own logger that writes to stdout by default:
+  1. When a WebSocket connection closes, websockets logs `"connection closed"` at INFO level
+  2. The default `StreamHandler` writes to `sys.stdout`
+  3. On Windows, `stdout.write()` can block indefinitely if console buffer is full/stalled
+  4. The event loop thread is the one calling the logger from the WebSocket handler
+  5. While waiting for `stream.write()` to complete, the entire event loop is blocked
+  6. All other async operations freeze (no heartbeat, no API responses, no WebSocket messages)
+- **Why this is different from #18 (print blocking):**
+  - #18 was our code calling `print()` - we fixed by using `logging` module
+  - #24 is a third-party library (websockets) using the logging module but with a default stdout handler
+  - Even with our file-based logging configured, third-party loggers still had their default StreamHandlers
+- **Why this is intermittent:**
+  - Requires console to be in a "blocking" state (buffer full, minimized, etc.)
+  - Normal operation: `stream.write()` returns immediately
+  - Pathological case: `stream.write()` blocks waiting for console buffer to drain
+  - More WebSocket reconnections = higher chance of hitting the race
+- **Files:**
+  - `backend/services/schwab_client.py` - Third-party logger configuration
+- **Fix:** Remove StreamHandlers from ALL third-party loggers, redirect to file only:
+  ```python
+  def _configure_third_party_logging():
+      """Configure third-party loggers to use file only, no stdout."""
+      root_handlers = logging.getLogger().handlers
+      file_handler = None
+      for h in root_handlers:
+          if isinstance(h, logging.FileHandler):
+              file_handler = h
+              break
+
+      third_party_loggers = [
+          'websockets', 'websockets.client', 'websockets.server', 'websockets.protocol',
+          'uvicorn', 'uvicorn.error', 'uvicorn.access',
+          'httpx', 'httpcore', 'socketio', 'engineio',
+      ]
+
+      for logger_name in third_party_loggers:
+          logger = logging.getLogger(logger_name)
+          logger.handlers = []  # Remove default StreamHandler
+          logger.propagate = False  # Don't propagate to root
+          if file_handler:
+              logger.addHandler(file_handler)  # Use our file handler
+          # Set appropriate levels
+          if logger_name.startswith('websockets') or logger_name.startswith('http'):
+              logger.setLevel(logging.WARNING)
+          else:
+              logger.setLevel(logging.INFO)
+
+  _configure_third_party_logging()
+  ```
+- **Why this works:**
+  - Third-party loggers no longer have any StreamHandler (no stdout writes)
+  - All log output goes to `logs/backend.log` via FileHandler
+  - File I/O on Windows doesn't have the same blocking issues as console stdout
+  - We keep WARNING level for chatty loggers, INFO for others
+- **Verification:** Backend should survive WebSocket reconnections indefinitely. If freeze occurs, check `logs/watchdog.log` for stack dump - MainThread should NOT be in `stream.write()`.
+
+### 18. print() Blocking Async Event Loop on Windows (FIXED 2026-01-30)
+- **Trigger:** Normal operation - any `print()` call from async context
 - **Impact:** Backend becomes completely unresponsive. Event loop frozen (no heartbeat logged). Same symptoms as all previous hangs.
 - **Observed:** Log shows last heartbeat, then silence. Backend port LISTENING, CLOSE_WAIT buildup. No errors.
 - **Root cause:** `print()` to stdout can block the entire asyncio event loop on Windows:
