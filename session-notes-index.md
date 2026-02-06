@@ -7,6 +7,7 @@ This index tracks all development sessions for the Momentum Trader Charting comp
 
 | Date | Topics | Key Changes | Status |
 |------|--------|-------------|--------|
+| 2026-02-06 | Real-Time VWAP from Trader App (Idea #6) | Streaming VWAP proxy from trader app VwapCache; useStreamingVWAP hook; source indicator dot (green=stream, yellow=rest, gray=local); 2s polling | ✅ Complete |
 | 2026-02-05 | Fix #24: websockets stdout Logging Blocking | Stack dump revealed websockets library logging to stdout blocks event loop; redirected all third-party loggers to file only | ✅ Tentative |
 | 2026-02-04 | Event Loop Freeze Fix #23 + Diagnostics | Fix #23 (call_soon_threadsafe), suppressed httpx logging, asyncio debug mode, thread stack dump in watchdog; ran 6+ hours without freeze after fixes — monitoring | ✅ Tentative |
 | 2026-02-03 | Thread Pool Deadlock Fix + Watchdog Thread | Fix #22: Return dict instead of httpx.Response from thread pool (prevents WindowsSelectorEventLoop deadlock), watchdog thread for freeze detection, troubleshooting doc updated | ✅ Complete |
@@ -33,4 +34,4 @@ This index tracks all development sessions for the Momentum Trader Charting comp
 
 ---
 
-**Last Updated**: 2026-02-05
+**Last Updated**: 2026-02-06

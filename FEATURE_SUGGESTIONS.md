@@ -39,6 +39,14 @@ This document tracks feature enhancements - both implemented and planned.
 - [Historical Analog Matching](#idea-4-historical-analog-matching---phase-5) - Trade history similarity search
 - [Float/Catalyst/Time Interactions](#idea-5-floatcatalysttime-interaction-analysis---phase-5) - 3-way interaction filter rules
 
+### Planned Features - Phase 6 (Trader App Alignment)
+- [Real-Time VWAP](#idea-6-real-time-vwap-from-streaming-cache) - Streaming VWAP from trader app cache
+- [Volume Spike Alerts](#idea-7-volume-spike-alert-overlay) - Visual alerts when volume spikes detected
+- [ABCD Pattern Overlay](#idea-8-abcd-fibonacci-pattern-overlay) - Fibonacci pattern visualization
+- [Options Flow Panel](#idea-9-options-flow-indicator-panel) - Sweep detection and call/put flow
+- [Gate Visualization](#idea-10-gate-system-visualization) - MTF/VWAP/Heat gate status
+- [Position Monitor](#idea-11-position-monitor-streaming-status) - Real-time position and stop-loss display
+
 ### Infrastructure
 - [Smart Launcher Scripts](#smart-launcher-scripts) - Auto-detection startup
 
@@ -818,5 +826,182 @@ The `signal_events` table from v1.45.0 Signal Intelligence is collecting gate de
 
 ---
 
-**Last Updated**: 2026-01-28
+## Trader App Alignment - Phase 6
+
+> **Source**: Review of Momentum Trader enhancements from Feb 2-6, 2026
+> **Goal**: Align charting app with trader app's new streaming data and pattern detection capabilities
+> **Principle**: Leverage existing trader app infrastructure rather than duplicate functionality
+
+### Idea #6: Real-Time VWAP from Streaming Cache
+**Status**: ✅ IMPLEMENTED
+**Priority**: HIGH
+**Trader App Version**: v2.6.0
+**Source**: [session-notes/2026-02-06.md](session-notes/2026-02-06.md)
+
+**Description**:
+The trader app now calculates VWAP in real-time using streaming quote data (volume delta accumulation), eliminating stale REST values. The charting app consumes this fresh VWAP data via proxy endpoints.
+
+**Implementation Summary**:
+- **Trader app**: Added `/api/vwap/{symbol}` and `/api/vwap` endpoints exposing VwapCache data
+- **Charting backend**: Added VWAP proxy endpoints in `routes.py` (lines 78-138)
+- **Charting frontend**: Created `useStreamingVWAP` hook with 2s polling interval
+- **Visual indicator**: VWAP badge shows source dot (green=stream, yellow=rest, gray=local)
+- **Fallback**: Automatic fallback to local VWAP when trader app unavailable
+
+**Files Modified**:
+- `momentum-trader/src/data/vwap_cache.py` - Added `get_all()` method
+- `momentum-trader/src/web/api.py` - Added VWAP API endpoints
+- `momentum-trader-charting/backend/api/routes.py` - Added VWAP proxy
+- `momentum-trader-charting/src/renderer/hooks/useStreamingVWAP.ts` - NEW
+- `momentum-trader-charting/src/renderer/components/charts/EnhancedChart.tsx` - Integrated streaming VWAP
+- `momentum-trader-charting/src/renderer/styles/global.css` - Source indicator styling
+
+**Value**: Ensures charting app shows same VWAP values as trader app's Gate 4 decisions. Critical for visual confirmation of VWAP reclaim patterns.
+
+---
+
+### Idea #7: Volume Spike Alert Overlay
+**Status**: NOT IMPLEMENTED
+**Priority**: HIGH
+**Trader App Version**: v2.7.0
+
+**Description**:
+The trader app detects real-time volume spikes from streaming quotes and triggers pattern re-scans. The charting app should visually highlight these volume spike events on charts.
+
+**Current State**:
+- Trader app detects volume acceleration (3x normal for Normal preset, 2x for Scalper)
+- First-hour sensitivity boost (0.8x threshold 9:30-10:30 AM)
+- 5-second debounce prevents rapid re-scans
+- No visual indication in charting app when volume spike occurs
+
+**Implementation Path**:
+1. **Trader app**: Emit volume spike events via WebSocket/SocketIO to charting app
+2. **Charting app backend**: Subscribe to volume spike events from trader app
+3. **Charting app frontend**: Show visual alert (flash, badge, or volume bar highlight) when spike detected
+4. **Configuration**: Allow user to toggle volume spike alerts on/off
+
+**Value**: Visual confirmation of the same volume spikes that trigger trader app re-scans. Helps trader understand why a stock suddenly got a new signal.
+
+---
+
+### Idea #8: ABCD Fibonacci Pattern Overlay
+**Status**: NOT IMPLEMENTED
+**Priority**: MEDIUM
+**Trader App Version**: v1.57.0
+
+**Description**:
+The trader app now detects ABCD Fibonacci patterns with swing highs/lows, BC retracement validation (38.2-78.6%), and measured move targets. The charting app should visualize these patterns.
+
+**Current State**:
+- Trader app has full ABCD detection in `pattern_detector.py`
+- Swing detection with 2-candle confirmation
+- Fibonacci validation and measured move target calculation
+- Pattern coverage now 10/11 Warrior Trading strategies (91%)
+
+**Implementation Path**:
+1. **Trader app**: Expose detected ABCD patterns via API (A, B, C, D points + target)
+2. **Charting app backend**: Fetch ABCD patterns for displayed symbols
+3. **Charting app frontend**: Draw ABCD overlay on chart:
+   - Connect A-B-C-D swing points with lines
+   - Show Fibonacci retracement levels
+   - Display measured move target line
+4. **Toggle control**: Add ABCD to pattern overlay controls panel
+
+**Value**: Visualize the same ABCD patterns the trader app uses for signals. Helps trader understand entry/target levels for ABCD setups.
+
+---
+
+### Idea #9: Options Flow Indicator Panel
+**Status**: NOT IMPLEMENTED
+**Priority**: MEDIUM
+**Trader App Version**: v2.4.0
+
+**Description**:
+The trader app integrates real-time options flow from Schwab's LEVELONE_OPTIONS streaming, detecting sweeps and golden sweeps (>$1M premium). The charting app should display options flow activity.
+
+**Current State**:
+- Trader app has `OptionsFlowAnalyzer` and `OptionsFlowCache`
+- Detects call/put flow imbalance (~90% direction accuracy)
+- Golden sweep detection (>$1M premium, >100 contracts)
+- Confidence boost: +20 golden sweep, +15 multi-strike sweeps
+
+**Implementation Path**:
+1. **Trader app**: Expose `/api/options-flow/{symbol}` endpoint with recent flow data
+2. **Charting app backend**: Fetch options flow for displayed symbols
+3. **Charting app frontend**: New "Options Flow" panel showing:
+   - Call/Put ratio bar
+   - Recent sweeps list (size, strike, expiry, premium)
+   - Golden sweep alerts (highlighted)
+4. **Integration**: Show options flow confidence boost in LLM validation context
+
+**Value**: Options flow is a leading indicator often signaling institutional interest before price moves. Valuable context for trade decisions.
+
+---
+
+### Idea #10: Gate System Visualization
+**Status**: NOT IMPLEMENTED
+**Priority**: MEDIUM
+
+**Description**:
+The trader app uses a multi-gate system (MTF → VWAP → Heat) for signal validation. The charting app should visualize which gates are passing/failing for the current stock.
+
+**Current State**:
+- Gate 1: Multi-Timeframe alignment (soft gate)
+- Gate 2: VWAP position (soft gate)
+- Gate 3: Market heat threshold (hard gate)
+- Gate status determines signal acceptance/rejection
+
+**Implementation Path**:
+1. **Trader app**: Expose gate status in `/api/watchlist` or `/api/signals/{symbol}` response
+2. **Charting app backend**: Include gate status when fetching stock data
+3. **Charting app frontend**: Gate status panel showing:
+   - MTF gate: Pass/Fail with timeframe details
+   - VWAP gate: Pass/Fail with price vs VWAP
+   - Heat gate: Pass/Fail with current heat value
+4. **Visual cues**: Color-coded gates (green pass, red fail, yellow soft-fail)
+
+**Value**: Transparency into why signals are accepted or rejected. Helps trader understand the trader app's decision-making process.
+
+---
+
+### Idea #11: Position Monitor Streaming Status
+**Status**: NOT IMPLEMENTED
+**Priority**: LOW
+**Trader App Version**: v2.5.0
+
+**Description**:
+The trader app now has event-driven position monitoring (<100ms latency vs 2-5s polling). The charting app should show position status and stop-loss proximity.
+
+**Current State**:
+- Trader app has streaming position monitor with double-exit prevention
+- Stop-loss triggers in <100ms
+- Connectivity status indicator in trader app UI
+
+**Implementation Path**:
+1. **Trader app**: Expose position stream events to charting app
+2. **Charting app backend**: Subscribe to position updates
+3. **Charting app frontend**:
+   - Show entry line on chart for open positions
+   - Show stop-loss line (red) with proximity warning
+   - Flash/alert when stop-loss is approaching
+4. **Status indicator**: Show position monitor connectivity status
+
+**Value**: Real-time awareness of position risk without switching to trader app.
+
+---
+
+### Phase 6 Implementation Priority
+
+| Idea | Change Type | Dependency | Implement When |
+|------|-------------|------------|----------------|
+| **#6 Real-Time VWAP** | Backend + Frontend | Trader app `/api/vwap` endpoint | **Done** (2026-02-06) |
+| **#7 Volume Spike Alerts** | Backend + Frontend | Trader app WebSocket events | High priority - visual feedback for re-scans |
+| **#8 ABCD Pattern Overlay** | Backend + Frontend | Trader app pattern API | Medium priority - after core overlays stable |
+| **#9 Options Flow Panel** | Backend + Frontend | Trader app `/api/options-flow` endpoint | Medium priority - valuable context |
+| **#10 Gate Visualization** | Backend + Frontend | Trader app gate status in API | Medium priority - transparency feature |
+| **#11 Position Monitor** | Backend + Frontend | Trader app position stream | Low priority - nice-to-have |
+
+---
+
+**Last Updated**: 2026-02-06
 **Maintain this file** as features are implemented and new ideas emerge

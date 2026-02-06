@@ -412,6 +412,37 @@ body {
   color: var(--accent-red);
 }
 
+/* VWAP source indicator dot (v2.6.0) */
+.vwap-source-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.vwap-source-stream {
+  background-color: var(--accent-green);
+  box-shadow: 0 0 4px var(--accent-green);
+}
+
+.vwap-source-rest {
+  background-color: var(--accent-yellow);
+}
+
+.vwap-source-local,
+.vwap-source-unavailable,
+.vwap-source-loading,
+.vwap-source-timeout,
+.vwap-source-error {
+  background-color: #666;
+}
+
+.vwap-source-dot.stale {
+  opacity: 0.5;
+}
+
 /* Indicator legend */
 .indicator-legend {
   display: flex;

@@ -5,6 +5,7 @@ from pathlib import Path
 import json
 import logging
 import asyncio
+import httpx
 from services.schwab_client import ChartSchwabClient, get_cached_candles
 from services.file_watcher import get_cached_watchlist_async, get_cached_runners
 from services.llm_validator import get_validator, ValidationResult
@@ -66,6 +67,75 @@ async def get_runners():
     if runners is None:
         raise HTTPException(status_code=503, detail="Runners not available")
     return runners
+
+
+# ==================== VWAP Proxy Endpoints (v2.6.0) ====================
+
+# Trader app API base URL (same as file_watcher)
+_TRADER_API_BASE = "http://127.0.0.1:8080"
+
+
+@router.get("/vwap/{symbol}")
+async def get_streaming_vwap(symbol: str):
+    """
+    Fetch real-time VWAP from trader app (v2.6.0).
+
+    Proxies request to trader app's VwapCache which maintains
+    streaming VWAP from quote updates. Falls back gracefully
+    if trader app is unavailable.
+    """
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(5.0, connect=2.0),
+            http2=False
+        ) as client:
+            response = await asyncio.wait_for(
+                client.get(f"{_TRADER_API_BASE}/api/vwap/{symbol}"),
+                timeout=5.0
+            )
+            if response.status_code == 200:
+                return response.json()
+            _logger.warning(f"VWAP fetch for {symbol} returned {response.status_code}")
+            return {"symbol": symbol, "vwap": None, "source": "unavailable"}
+    except httpx.ConnectError:
+        _logger.debug(f"Trader app not available for VWAP {symbol}")
+        return {"symbol": symbol, "vwap": None, "source": "unavailable"}
+    except asyncio.TimeoutError:
+        _logger.warning(f"VWAP fetch for {symbol} timed out")
+        return {"symbol": symbol, "vwap": None, "source": "timeout"}
+    except Exception as e:
+        _logger.warning(f"Failed to fetch VWAP for {symbol}: {e}")
+        return {"symbol": symbol, "vwap": None, "source": "error"}
+
+
+@router.get("/vwap")
+async def get_all_streaming_vwap():
+    """
+    Fetch all streaming VWAP values from trader app (batch endpoint).
+
+    Useful for pre-fetching VWAP for all watchlist symbols at once.
+    """
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(5.0, connect=2.0),
+            http2=False
+        ) as client:
+            response = await asyncio.wait_for(
+                client.get(f"{_TRADER_API_BASE}/api/vwap"),
+                timeout=5.0
+            )
+            if response.status_code == 200:
+                return response.json()
+            return {}
+    except httpx.ConnectError:
+        _logger.debug("Trader app not available for batch VWAP")
+        return {}
+    except asyncio.TimeoutError:
+        _logger.warning("Batch VWAP fetch timed out")
+        return {}
+    except Exception as e:
+        _logger.warning(f"Failed to fetch all VWAP: {e}")
+        return {}
 
 
 @router.get("/candles/{symbol}")

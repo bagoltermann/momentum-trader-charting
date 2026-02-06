@@ -11,6 +11,7 @@ import {
 } from '../../utils/indicators'
 import { CandleWithVolume } from '../../hooks/useCandleData'
 import { debugLog } from '../../utils/debugLog'
+import { useStreamingVWAP, VWAPSource } from '../../hooks/useStreamingVWAP'
 
 export interface EntryZoneLevel {
   price: number
@@ -149,6 +150,16 @@ export function EnhancedChart({
       return null
     }
   }, [rawCandles, detectPatterns, symbol])
+
+  // Get local VWAP value for streaming hook fallback
+  const localVWAPValue = useMemo(() => {
+    if (vwap.length === 0) return null
+    return vwap[vwap.length - 1].value
+  }, [vwap])
+
+  // Streaming VWAP from trader app (v2.6.0)
+  // Falls back to local calculation when trader app unavailable
+  const streamingVWAP = useStreamingVWAP(symbol, localVWAPValue)
 
   // Pre-compute VWAP band arrays in a single pass (avoids 4 separate .map() calls)
   const { bandUpper1, bandUpper2, bandLower1, bandLower2 } = useMemo(() => {
@@ -676,16 +687,26 @@ export function EnhancedChart({
   }, [entryZones, riskReward, microPullback, supportResistanceLevels, gapZones, flagPennantPattern, candles, symbol])
 
   // Calculate current VWAP distance for display
+  // Use streaming VWAP from trader app when available (v2.6.0)
   const vwapDistance = useMemo(() => {
-    if (candles.length === 0 || vwap.length === 0) return null
+    if (candles.length === 0) return null
+
+    // Prefer streaming VWAP when available and valid
+    const useStreaming = streamingVWAP.vwap && streamingVWAP.vwap > 0 && !streamingVWAP.loading
+    const currentVWAP = useStreaming ? streamingVWAP.vwap! : (vwap.length > 0 ? vwap[vwap.length - 1].value : null)
+
+    if (!currentVWAP || currentVWAP <= 0) return null
+
     const lastPrice = candles[candles.length - 1].close
-    const lastVWAP = vwap[vwap.length - 1].value
-    const distance = ((lastPrice - lastVWAP) / lastVWAP) * 100
+    const distance = ((lastPrice - currentVWAP) / currentVWAP) * 100
+
     return {
       percent: distance,
       zone: Math.abs(distance) <= 2.5 ? 'green' : Math.abs(distance) <= 3.5 ? 'yellow' : 'red',
+      source: useStreaming ? streamingVWAP.source : 'local' as VWAPSource,
+      stale: useStreaming ? streamingVWAP.stale : false,
     }
-  }, [candles, vwap])
+  }, [candles, vwap, streamingVWAP])
 
   // Calculate current R multiple for display
   const currentRMultiple = useMemo(() => {
@@ -746,7 +767,17 @@ export function EnhancedChart({
             </span>
           )}
           {showVWAP && vwapDistance && (
-            <span className={`vwap-distance ${vwapDistance.zone}`}>
+            <span
+              className={`vwap-distance ${vwapDistance.zone}`}
+              title={
+                vwapDistance.source === 'stream'
+                  ? 'Streaming VWAP from trader app (real-time)'
+                  : vwapDistance.source === 'rest'
+                  ? `REST VWAP from trader app${vwapDistance.stale ? ' (stale)' : ''}`
+                  : 'Local VWAP calculation (trader app unavailable)'
+              }
+            >
+              <span className={`vwap-source-dot vwap-source-${vwapDistance.source}${vwapDistance.stale ? ' stale' : ''}`} />
               VWAP: {vwapDistance.percent >= 0 ? '+' : ''}{vwapDistance.percent.toFixed(2)}%
             </span>
           )}
