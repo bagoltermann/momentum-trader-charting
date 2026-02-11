@@ -774,6 +774,8 @@ export function EnhancedChart({
                   ? 'Streaming VWAP from trader app (real-time)'
                   : vwapDistance.source === 'rest'
                   ? `REST VWAP from trader app${vwapDistance.stale ? ' (stale)' : ''}`
+                  : vwapDistance.source === 'premarket'
+                  ? 'Pre-market: VWAP starts at 9:30 AM ET (using local calculation)'
                   : 'Local VWAP calculation (trader app unavailable)'
               }
             >

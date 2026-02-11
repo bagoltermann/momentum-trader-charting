@@ -11,7 +11,21 @@
 import { useState, useEffect, useRef } from 'react'
 import { debugLogTimestamped as log } from '../utils/debugLog'
 
-export type VWAPSource = 'stream' | 'rest' | 'local' | 'unavailable' | 'loading' | 'timeout' | 'error'
+export type VWAPSource = 'stream' | 'rest' | 'local' | 'unavailable' | 'loading' | 'timeout' | 'error' | 'premarket'
+
+/** Check if current time is within regular market hours (9:30 AM - 4:00 PM ET) */
+function isMarketHours(): boolean {
+  const now = new Date()
+  // Convert to ET using Intl API
+  const etTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }))
+  const hours = etTime.getHours()
+  const minutes = etTime.getMinutes()
+  const totalMinutes = hours * 60 + minutes
+  // Market hours: 9:30 AM (570 min) to 4:00 PM (960 min), weekdays only
+  const dayOfWeek = etTime.getDay()
+  if (dayOfWeek === 0 || dayOfWeek === 6) return false
+  return totalMinutes >= 570 && totalMinutes < 960
+}
 
 export interface StreamingVWAPData {
   vwap: number | null
@@ -81,14 +95,15 @@ export function useStreamingVWAP(symbol: string | null, localVWAP: number | null
           })
           log(`[VWAP] ${symbol}: $${json.vwap.toFixed(2)} (${json.source}, stale)`)
         } else {
-          // No valid streaming VWAP - fallback to local
+          // No valid streaming VWAP - check if pre-market or unavailable
+          const premarket = !isMarketHours()
           setData({
             vwap: localVWAP,
-            source: 'local',
+            source: premarket ? 'premarket' : 'local',
             stale: true,
             loading: false,
           })
-          log(`[VWAP] ${symbol}: fallback to local VWAP`)
+          log(`[VWAP] ${symbol}: fallback to local VWAP${premarket ? ' (pre-market)' : ''}`)
         }
       } catch (error) {
         if (!mountedRef.current || symbolRef.current !== symbol) return
