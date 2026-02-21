@@ -46,9 +46,14 @@ This document tracks feature enhancements - both implemented and planned.
 - [Options Flow Panel](#idea-9-options-flow-indicator-panel) - Sweep detection and call/put flow
 - [Gate Visualization](#idea-10-gate-system-visualization) - MTF/VWAP/Heat gate status
 - [Position Monitor](#idea-11-position-monitor-streaming-status) - Real-time position and stop-loss display
+- [Rotation Display](#idea-12-streaming-rotation-universe-discovery-display) - Universe discovery visibility
+- [Indicator Tooltips](#idea-13-educational-indicator-tooltips) - Educational tooltips for all badges
 
 ### Infrastructure
 - [Smart Launcher Scripts](#smart-launcher-scripts) - Auto-detection startup
+
+### Integration Audit
+- [Audit Log](#trader-app-integration-audit-log) - Track trader app changes impacting charting app
 
 ---
 
@@ -990,18 +995,117 @@ The trader app now has event-driven position monitoring (<100ms latency vs 2-5s 
 
 ---
 
+### Idea #12: Streaming Rotation Universe Discovery Display
+**Status**: NOT IMPLEMENTED
+**Priority**: MEDIUM
+**Trader App Version**: v1.75.0
+
+**Description**:
+The trader app now continuously scans the entire market universe using ~485 unused streaming slots with a three-tier rotation system. The charting app should display discovery status and anomaly detections.
+
+**Current State**:
+- Trader app has `StreamingRotationManager` with three-tier symbol allocation:
+  - **Persistent (~50)**: Watchlist + positions — never rotated
+  - **Priority (~100-150)**: Promoted symbols with confirmed activity
+  - **Discovery (~300)**: Current rotation batch from market universe
+- Rotates through entire market every ~60 seconds
+- Anomaly detection with configurable thresholds (tick count, volume, price range)
+- API endpoint `/api/streaming/rotation` already exists and returns full rotation state
+
+**Implementation Path**:
+1. **Charting app backend**: Add VWAP-style proxy for `/api/streaming/rotation`
+2. **Charting app frontend**: Add rotation status panel or badge showing:
+   - Number of symbols in each tier (persistent/priority/discovery)
+   - Recently promoted symbols (anomaly detected)
+   - Current rotation batch progress
+3. **Optional**: Click on promoted symbol to load into chart
+
+**Value**: Visibility into what the trader app is scanning. When a new symbol gets promoted to priority tier (anomaly detected), the trader can immediately investigate it on the chart.
+
+---
+
+### Idea #13: Educational Indicator Tooltips
+**Status**: NOT IMPLEMENTED
+**Priority**: LOW
+
+**Description**:
+Add educational tooltips to all chart header badges and indicators. As a learning day trader, understanding what each indicator means and how to interpret values in Warrior Trading context is essential.
+
+**Current State**:
+- VWAP badge has source tooltip (stream/rest/local/premarket)
+- All other badges (Gap%, Volume, SETUP, BULL FLAG, S/R, GAP zones, R-multiple, EMA legend) have no tooltips
+
+**Implementation Path**:
+1. Add `title` attributes to all badge elements in `EnhancedChart.tsx`
+2. Include Warrior Trading context in tooltip text
+3. Optionally make tooltips context-aware (e.g., R:+2.5 shows "Consider scaling out")
+
+**Badges to add tooltips**:
+| Badge | Tooltip |
+|-------|---------|
+| Gap % | "Gap Up/Down: % price jumped overnight vs yesterday's close. >20% = strong momentum candidate" |
+| Volume (x ratio) | "Today's volume vs 10-day average. >2x = unusual interest" |
+| SETUP | "Micro-pullback: Price pulled back to support (EMA/VWAP) after a strong move. Potential entry signal" |
+| BULL FLAG / PENNANT | "Consolidation pattern after a strong move up. Breakout above the flag = continuation signal" |
+| S/R (n) | "Support/Resistance: Key price levels where buying or selling pressure clusters" |
+| GAP (n) | "Gap zones: Unfilled price gaps that often act as magnets" |
+| R: value | "R-Multiple: Profit/loss measured in units of risk. Target 2R-3R minimum" |
+| VWAP legend | "Volume Weighted Average Price. 9 = 9-period EMA (fast). 20 = 20-period EMA (slower)" |
+
+**Value**: Self-training tool for learning Warrior Trading terminology while actively using the charting app.
+
+---
+
 ### Phase 6 Implementation Priority
 
 | Idea | Change Type | Dependency | Implement When |
 |------|-------------|------------|----------------|
 | **#6 Real-Time VWAP** | Backend + Frontend | Trader app `/api/vwap` endpoint | **Done** (2026-02-06) |
-| **#7 Volume Spike Alerts** | Backend + Frontend | Trader app WebSocket events | High priority - visual feedback for re-scans |
+| **#7 Volume Spike Alerts** | Backend + Frontend | Trader app needs API/event | High priority - visual feedback for re-scans |
 | **#8 ABCD Pattern Overlay** | Backend + Frontend | Trader app pattern API | Medium priority - after core overlays stable |
 | **#9 Options Flow Panel** | Backend + Frontend | Trader app `/api/options-flow` endpoint | Medium priority - valuable context |
 | **#10 Gate Visualization** | Backend + Frontend | Trader app gate status in API | Medium priority - transparency feature |
 | **#11 Position Monitor** | Backend + Frontend | Trader app position stream | Low priority - nice-to-have |
+| **#12 Rotation Display** | Backend + Frontend | API ready (`/api/streaming/rotation`) | Medium priority - universe discovery visibility |
+| **#13 Indicator Tooltips** | Frontend only | None | Low priority - educational enhancement |
 
 ---
 
-**Last Updated**: 2026-02-06
+## Trader App Integration Audit Log
+
+> Track trader app changes that impact or could benefit the charting app.
+
+### Audit: 2026-02-11
+
+**Trader app versions reviewed**: v1.66.0 through v1.75.0
+
+#### Breaking Changes Assessed
+
+| Change | Version | Impact | Status |
+|--------|---------|--------|--------|
+| Sparse quote dicts | v1.73.0 | Quotes may omit fields. Must use `.get()` not direct access | **SAFE** - `useStreamingQuotes.ts` guards with `!quote.trade_time_ms \|\| !quote.last_price` |
+| Consumer gating | v1.75.0 | Discovery-tier symbols skip cache updates | **LOW RISK** - charting app only displays watchlist (persistent tier) symbols |
+| mode_preset key fix | v1.74.0 | `/api/market-context` now returns correct `current_mode` | **BENEFICIAL** - free fix for charting app |
+
+#### New Capabilities Available
+
+| Feature | Version | API Status | Charting App Opportunity |
+|---------|---------|------------|--------------------------|
+| StreamingCandleCache | v1.66.0 | No API yet (internal) | Could eliminate Schwab candle polling. Needs trader app to expose `/api/streaming/candles` |
+| VolumeSpikeCache | v2.7.0 | No API yet | Aligns with Idea #7. Needs trader app API or SocketIO event |
+| StreamingRotation | v1.75.0 | `/api/streaming/rotation` ready | New Idea #12 - display universe discovery status |
+| close_price in streaming | v1.74.0 | Via quote updates | Available for gap detection improvements |
+
+#### Key Architecture Note
+
+Trader app streaming pipeline now has **consumer gating** (v1.75.0):
+- **Persistent tier** (watchlist + positions): Full pipeline processing (caches, pattern detection)
+- **Priority tier** (promoted symbols): Full pipeline processing
+- **Discovery tier** (rotation batch): Only anomaly stats — skips caches
+
+The charting app's SocketIO quote stream is **unaffected** (all tiers emit `quote_update` events). But backend caches (VWAP, candles) are only updated for persistent/priority tier symbols.
+
+---
+
+**Last Updated**: 2026-02-11
 **Maintain this file** as features are implemented and new ideas emerge
