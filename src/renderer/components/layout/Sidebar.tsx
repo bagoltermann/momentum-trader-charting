@@ -10,6 +10,7 @@ interface SidebarProps {
   watchlist: WatchlistItem[]
   selectedSymbol: string | null
   onSelectSymbol: (symbol: string) => void
+  spikingSymbols?: Set<string>
 }
 
 // Format price compactly: 12.50 -> 12.5, 3.00 -> 3
@@ -20,7 +21,7 @@ function formatPrice(price: number | undefined): string {
   return price.toFixed(2)
 }
 
-export function Sidebar({ watchlist, selectedSymbol, onSelectSymbol }: SidebarProps) {
+export function Sidebar({ watchlist, selectedSymbol, onSelectSymbol, spikingSymbols }: SidebarProps) {
   return (
     <aside className="sidebar">
       <h2>Watchlist</h2>
@@ -28,7 +29,7 @@ export function Sidebar({ watchlist, selectedSymbol, onSelectSymbol }: SidebarPr
         {watchlist.map((stock) => (
           <li
             key={stock.symbol}
-            className={`symbol-item ${selectedSymbol === stock.symbol ? 'selected' : ''}`}
+            className={`symbol-item ${selectedSymbol === stock.symbol ? 'selected' : ''} ${spikingSymbols?.has(stock.symbol) ? 'spiking' : ''}`}
             onClick={() => onSelectSymbol(stock.symbol)}
           >
             <span className="symbol">{stock.symbol}</span>

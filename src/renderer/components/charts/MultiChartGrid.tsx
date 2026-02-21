@@ -13,6 +13,7 @@ interface MultiChartGridProps {
   primarySymbol: string | null
   secondarySymbols: string[]
   runners: Runner[]
+  volumeSpike?: { spike_ratio: number } | null
 }
 
 // Convert runner data to entry zone levels for chart display
@@ -84,7 +85,7 @@ function getRiskRewardForSymbol(symbol: string | null, runners: Runner[]): RiskR
   }
 }
 
-export function MultiChartGrid({ primarySymbol, secondarySymbols, runners }: MultiChartGridProps) {
+export function MultiChartGrid({ primarySymbol, secondarySymbols, runners, volumeSpike }: MultiChartGridProps) {
   debugLog(`[MultiChartGrid] Rendering: primarySymbol=${primarySymbol}, secondarySymbols=[${secondarySymbols.join(',')}]`)
 
   // Real-time streaming from trader app (pauses REST polling when connected)
@@ -198,6 +199,7 @@ export function MultiChartGrid({ primarySymbol, secondarySymbols, runners }: Mul
                 gapPercent={primaryGapPercent}
                 totalVolume={primaryTotalVolume}
                 avgVolume={primaryAvgVolume}
+                volumeSpike={volumeSpike}
               />
             </ErrorBoundary>
           </>

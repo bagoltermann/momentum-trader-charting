@@ -47,6 +47,8 @@ interface EnhancedChartProps {
   gapPercent?: number        // Day 1 gap percentage from runner data
   totalVolume?: number       // Sum of candle volumes (pre-market volume)
   avgVolume?: number         // Average daily volume for ratio calculation
+  // Volume spike alert (v2.8.0)
+  volumeSpike?: { spike_ratio: number } | null
 }
 
 // Store series references for data updates
@@ -90,6 +92,7 @@ export function EnhancedChart({
   gapPercent,
   totalVolume,
   avgVolume,
+  volumeSpike,
 }: EnhancedChartProps) {
   debugLog(`[EnhancedChart] RENDER: symbol=${symbol}, candles=${candles.length}, rawCandles=${rawCandles.length}`)
 
@@ -741,6 +744,11 @@ export function EnhancedChart({
           )}
         </div>
         <div className="chart-header-right">
+          {volumeSpike && (
+            <span className="pattern-badge volume-spike-badge">
+              VOL SPIKE {volumeSpike.spike_ratio}x
+            </span>
+          )}
           {microPullback && microPullback.detected && (
             <span className={`pattern-badge pattern-${microPullback.patternStrength}`}>
               SETUP

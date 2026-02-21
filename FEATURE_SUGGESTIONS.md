@@ -866,26 +866,33 @@ The trader app now calculates VWAP in real-time using streaming quote data (volu
 ---
 
 ### Idea #7: Volume Spike Alert Overlay
-**Status**: NOT IMPLEMENTED
+**Status**: ✅ IMPLEMENTED
 **Priority**: HIGH
 **Trader App Version**: v2.7.0
+**Source**: [session-notes/2026-02-21.md](session-notes/2026-02-21.md)
 
 **Description**:
-The trader app detects real-time volume spikes from streaming quotes and triggers pattern re-scans. The charting app should visually highlight these volume spike events on charts.
+The trader app detects real-time volume spikes from streaming quotes and triggers pattern re-scans. The charting app visually highlights these volume spike events across the entire watchlist.
 
-**Current State**:
-- Trader app detects volume acceleration (3x normal for Normal preset, 2x for Scalper)
-- First-hour sensitivity boost (0.8x threshold 9:30-10:30 AM)
-- 5-second debounce prevents rapid re-scans
-- No visual indication in charting app when volume spike occurs
+**Implementation Summary**:
+- **Backend**: QuoteRelay captures `volume_spike` SocketIO events from trader app, stores in auto-expiring dict (30s TTL)
+- **REST endpoint**: `GET /api/volume-spikes/active` returns active spikes (no httpx proxy needed — local dict read)
+- **Frontend hook**: `useVolumeSpikeAlerts` polls every 5s with feature flag (`VOLUME_SPIKE_ALERTS_ENABLED`)
+- **Sidebar flash**: All watchlist symbols flash orange (3 pulses) when spiking
+- **Chart badge**: Active chart shows pulsing "VOL SPIKE Nx" badge (hot orange #FF5722)
+- **Architecture**: REST polling pattern (same as VWAP + Rotation) — zero WebSocket changes for stability
 
-**Implementation Path**:
-1. **Trader app**: Emit volume spike events via WebSocket/SocketIO to charting app
-2. **Charting app backend**: Subscribe to volume spike events from trader app
-3. **Charting app frontend**: Show visual alert (flash, badge, or volume bar highlight) when spike detected
-4. **Configuration**: Allow user to toggle volume spike alerts on/off
+**Files Modified**:
+- `backend/services/quote_relay.py` - `volume_spike` listener + `_active_spikes` dict with `copy.copy` safety
+- `backend/api/routes.py` - `GET /volume-spikes/active` endpoint
+- `src/renderer/hooks/useVolumeSpikeAlerts.ts` - NEW — 5s polling hook
+- `src/renderer/components/layout/Sidebar.tsx` - Optional `spikingSymbols` prop, `spiking` CSS class
+- `src/renderer/components/charts/EnhancedChart.tsx` - Optional `volumeSpike` prop, VOL SPIKE badge
+- `src/renderer/components/charts/MultiChartGrid.tsx` - Pass-through prop
+- `src/renderer/App.tsx` - Hook integration, prop wiring
+- `src/renderer/styles/global.css` - Spike badge + sidebar flash animation
 
-**Value**: Visual confirmation of the same volume spikes that trigger trader app re-scans. Helps trader understand why a stock suddenly got a new signal.
+**Value**: Visual confirmation of the same volume spikes that trigger trader app re-scans. Sidebar flash ensures no spike is missed even when viewing a different symbol.
 
 ---
 
@@ -1062,7 +1069,7 @@ Add educational tooltips to all chart header badges and indicators. As a learnin
 | Idea | Change Type | Dependency | Implement When |
 |------|-------------|------------|----------------|
 | **#6 Real-Time VWAP** | Backend + Frontend | Trader app `/api/vwap` endpoint | **Done** (2026-02-06) |
-| **#7 Volume Spike Alerts** | Backend + Frontend | Trader app needs API/event | High priority - visual feedback for re-scans |
+| **#7 Volume Spike Alerts** | Backend + Frontend | Trader app `volume_spike` SocketIO event | **Done** (2026-02-21) |
 | **#8 ABCD Pattern Overlay** | Backend + Frontend | Trader app pattern API | Medium priority - after core overlays stable |
 | **#9 Options Flow Panel** | Backend + Frontend | Trader app `/api/options-flow` endpoint | Medium priority - valuable context |
 | **#10 Gate Visualization** | Backend + Frontend | Trader app gate status in API | Medium priority - transparency feature |
@@ -1093,7 +1100,7 @@ Add educational tooltips to all chart header badges and indicators. As a learnin
 | Feature | Version | API Status | Charting App Opportunity |
 |---------|---------|------------|--------------------------|
 | StreamingCandleCache | v1.66.0 | No API yet (internal) | Could eliminate Schwab candle polling. Needs trader app to expose `/api/streaming/candles` |
-| VolumeSpikeCache | v2.7.0 | No API yet | Aligns with Idea #7. Needs trader app API or SocketIO event |
+| VolumeSpikeCache | v2.7.0 | SocketIO `volume_spike` event | **Idea #7 IMPLEMENTED** (2026-02-21) |
 | StreamingRotation | v1.75.0 | `/api/streaming/rotation` ready | **Idea #12 IMPLEMENTED** (2026-02-20) |
 | close_price in streaming | v1.74.0 | Via quote updates | Available for gap detection improvements |
 
@@ -1108,5 +1115,5 @@ The charting app's SocketIO quote stream is **unaffected** (all tiers emit `quot
 
 ---
 
-**Last Updated**: 2026-02-11
+**Last Updated**: 2026-02-21
 **Maintain this file** as features are implemented and new ideas emerge

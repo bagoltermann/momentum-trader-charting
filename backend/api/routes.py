@@ -172,6 +172,23 @@ async def get_rotation_stats():
         return {"enabled": False, "error": "fetch_error"}
 
 
+# ==================== Volume Spike Alerts (v2.8.0) ====================
+
+
+@router.get("/volume-spikes/active")
+async def get_active_volume_spikes():
+    """
+    Get currently active volume spike alerts.
+
+    Returns spikes captured from trader app SocketIO events,
+    auto-expired after 30 seconds. No trader app API call needed —
+    data is stored locally in QuoteRelay from volume_spike events.
+    """
+    if not _quote_relay:
+        return {"spikes": {}}
+    return {"spikes": _quote_relay.get_active_spikes()}
+
+
 @router.get("/candles/{symbol}")
 async def get_candles(symbol: str, timeframe: str = "1m"):
     """

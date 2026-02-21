@@ -11,6 +11,7 @@ Contract (from trader app v1.46.0):
   Unsubscribe: emit('unsubscribe_quotes', {symbols: ['XHLD']})
   Status:      GET http://localhost:8080/api/streaming/quotes/status
 """
+import copy
 import socketio
 import threading
 import time
@@ -35,10 +36,15 @@ class QuoteRelay:
         self._thread = None
         self._started_at = None
 
+        # Volume spike alert storage (v2.8.0)
+        self._active_spikes = {}   # symbol -> spike_data dict
+        self._spike_expiry = 30    # seconds
+
         # Register SocketIO event handlers
         self.sio.on('connect', self._on_connect)
         self.sio.on('disconnect', self._on_disconnect)
         self.sio.on('quote_update', self._on_quote)
+        self.sio.on('volume_spike', self._on_volume_spike)
         self.sio.on('subscribe_response', self._on_subscribe_response)
         self.sio.on('unsubscribe_response', self._on_unsubscribe_response)
 
@@ -123,6 +129,24 @@ class QuoteRelay:
                 cb(data)
             except Exception:
                 pass
+
+    def _on_volume_spike(self, data):
+        """Store volume spike event for REST polling (v2.8.0)"""
+        symbol = data.get('symbol')
+        if symbol:
+            spike = copy.copy(data)
+            spike['received_at'] = time.time()
+            self._active_spikes[symbol] = spike
+            _logger.info(f"Volume spike: {symbol} ({data.get('spike_ratio', '?')}x)")
+
+    def get_active_spikes(self) -> dict:
+        """Return active (non-expired) spikes. Called by REST endpoint."""
+        now = time.time()
+        expired = [s for s, d in self._active_spikes.items()
+                   if now - d.get('received_at', 0) > self._spike_expiry]
+        for s in expired:
+            del self._active_spikes[s]
+        return dict(self._active_spikes)
 
     def _on_subscribe_response(self, data):
         _logger.debug(f"Subscribe response: {data}")

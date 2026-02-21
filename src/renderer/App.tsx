@@ -12,6 +12,7 @@ import { useRunners } from './hooks/useRunners'
 import { useValidationStore } from './store/validationStore'
 import { useRotationDiscovery } from './hooks/useRotationDiscovery'
 import { DiscoveryPanel } from './components/panels/DiscoveryPanel'
+import { useVolumeSpikeAlerts } from './hooks/useVolumeSpikeAlerts'
 
 function App() {
   const { watchlist, fetchWatchlist, connectionStatus } = useWatchlistStore()
@@ -23,6 +24,8 @@ function App() {
     checkLlmStatus
   } = useValidationStore()
   const rotationStats = useRotationDiscovery()
+  const { activeSpikes, spikingSymbols } = useVolumeSpikeAlerts()
+  const volumeSpike = selectedSymbol ? activeSpikes.get(selectedSymbol) ?? null : null
 
   // Get top 4 runners by quality score for secondary charts (excluding selected symbol)
   const secondaryRunnerSymbols = useMemo(() => {
@@ -109,6 +112,7 @@ function App() {
             watchlist={watchlist}
             selectedSymbol={selectedSymbol}
             onSelectSymbol={setSelectedSymbol}
+            spikingSymbols={spikingSymbols}
           />
           <DiscoveryPanel
             rotationStats={rotationStats}
@@ -120,6 +124,7 @@ function App() {
             primarySymbol={selectedSymbol}
             secondarySymbols={secondaryRunnerSymbols}
             runners={runners}
+            volumeSpike={volumeSpike}
           />
           <AnalysisPanels
             selectedSymbol={selectedSymbol}
