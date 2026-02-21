@@ -10,6 +10,8 @@ import { useWatchlistStore } from './store/watchlistStore'
 import { useChartStore } from './store/chartStore'
 import { useRunners } from './hooks/useRunners'
 import { useValidationStore } from './store/validationStore'
+import { useRotationDiscovery } from './hooks/useRotationDiscovery'
+import { DiscoveryPanel } from './components/panels/DiscoveryPanel'
 
 function App() {
   const { watchlist, fetchWatchlist, connectionStatus } = useWatchlistStore()
@@ -20,6 +22,7 @@ function App() {
     validateTop3,
     checkLlmStatus
   } = useValidationStore()
+  const rotationStats = useRotationDiscovery()
 
   // Get top 4 runners by quality score for secondary charts (excluding selected symbol)
   const secondaryRunnerSymbols = useMemo(() => {
@@ -101,11 +104,17 @@ function App() {
     <div className="app-container">
       <Header />
       <div className="main-content">
-        <Sidebar
-          watchlist={watchlist}
-          selectedSymbol={selectedSymbol}
-          onSelectSymbol={setSelectedSymbol}
-        />
+        <div className="left-column">
+          <Sidebar
+            watchlist={watchlist}
+            selectedSymbol={selectedSymbol}
+            onSelectSymbol={setSelectedSymbol}
+          />
+          <DiscoveryPanel
+            rotationStats={rotationStats}
+            onSelectSymbol={setSelectedSymbol}
+          />
+        </div>
         <div className="center-content">
           <MultiChartGrid
             primarySymbol={selectedSymbol}
@@ -127,7 +136,7 @@ function App() {
         watchlist={watchlist}
         onSelectSymbol={setSelectedSymbol}
       />
-      <StatusBar connectionStatus={connectionStatus} />
+      <StatusBar connectionStatus={connectionStatus} rotationStats={rotationStats} />
     </div>
   )
 }

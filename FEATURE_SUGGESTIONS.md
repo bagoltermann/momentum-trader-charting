@@ -996,9 +996,10 @@ The trader app now has event-driven position monitoring (<100ms latency vs 2-5s 
 ---
 
 ### Idea #12: Streaming Rotation Universe Discovery Display
-**Status**: NOT IMPLEMENTED
+**Status**: ✅ IMPLEMENTED
 **Priority**: MEDIUM
 **Trader App Version**: v1.75.0
+**Source**: [session-notes/2026-02-20.md](session-notes/2026-02-20.md)
 
 **Description**:
 The trader app now continuously scans the entire market universe using ~485 unused streaming slots with a three-tier rotation system. The charting app should display discovery status and anomaly detections.
@@ -1066,7 +1067,7 @@ Add educational tooltips to all chart header badges and indicators. As a learnin
 | **#9 Options Flow Panel** | Backend + Frontend | Trader app `/api/options-flow` endpoint | Medium priority - valuable context |
 | **#10 Gate Visualization** | Backend + Frontend | Trader app gate status in API | Medium priority - transparency feature |
 | **#11 Position Monitor** | Backend + Frontend | Trader app position stream | Low priority - nice-to-have |
-| **#12 Rotation Display** | Backend + Frontend | API ready (`/api/streaming/rotation`) | Medium priority - universe discovery visibility |
+| **#12 Rotation Display** | Backend + Frontend | API ready (`/api/streaming/rotation`) | **Done** (2026-02-20) |
 | **#13 Indicator Tooltips** | Frontend only | None | Low priority - educational enhancement |
 
 ---
@@ -1093,7 +1094,7 @@ Add educational tooltips to all chart header badges and indicators. As a learnin
 |---------|---------|------------|--------------------------|
 | StreamingCandleCache | v1.66.0 | No API yet (internal) | Could eliminate Schwab candle polling. Needs trader app to expose `/api/streaming/candles` |
 | VolumeSpikeCache | v2.7.0 | No API yet | Aligns with Idea #7. Needs trader app API or SocketIO event |
-| StreamingRotation | v1.75.0 | `/api/streaming/rotation` ready | New Idea #12 - display universe discovery status |
+| StreamingRotation | v1.75.0 | `/api/streaming/rotation` ready | **Idea #12 IMPLEMENTED** (2026-02-20) |
 | close_price in streaming | v1.74.0 | Via quote updates | Available for gap detection improvements |
 
 #### Key Architecture Note

@@ -138,6 +138,40 @@ async def get_all_streaming_vwap():
         return {}
 
 
+# ==================== Rotation Discovery Proxy (v2.7.0) ====================
+
+
+@router.get("/streaming/rotation")
+async def get_rotation_stats():
+    """
+    Proxy rotation stats from trader app's StreamingRotationManager.
+
+    Returns universe discovery status: which symbols are being scanned
+    in real-time and which have been promoted to priority tier.
+    """
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(5.0, connect=2.0),
+            http2=False
+        ) as client:
+            response = await asyncio.wait_for(
+                client.get(f"{_TRADER_API_BASE}/api/streaming/rotation"),
+                timeout=5.0
+            )
+            if response.status_code == 200:
+                return response.json()
+            return {"enabled": False, "error": "trader_app_error"}
+    except httpx.ConnectError:
+        _logger.debug("Trader app not available for rotation stats")
+        return {"enabled": False, "error": "trader_app_unavailable"}
+    except asyncio.TimeoutError:
+        _logger.warning("Rotation stats fetch timed out")
+        return {"enabled": False, "error": "timeout"}
+    except Exception as e:
+        _logger.warning(f"Rotation stats fetch failed: {e}")
+        return {"enabled": False, "error": "fetch_error"}
+
+
 @router.get("/candles/{symbol}")
 async def get_candles(symbol: str, timeframe: str = "1m"):
     """

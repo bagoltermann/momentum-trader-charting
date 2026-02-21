@@ -7,6 +7,7 @@ This index tracks all development sessions for the Momentum Trader Charting comp
 
 | Date | Topics | Key Changes | Status |
 |------|--------|-------------|--------|
+| 2026-02-20 | Streaming Rotation Discovery Display (Idea #12) | Rotation proxy endpoint; useRotationDiscovery hook with feature flag; StatusBar scanner indicator; collapsible DiscoveryPanel with clickable promoted symbols | ✅ Complete |
 | 2026-02-11 | Pre-market VWAP tooltip, trader app audit, Ideas #12-#13 | Pre-market aware VWAP tooltip; integration audit v1.66-v1.75; Idea #12 Rotation Display, #13 Indicator Tooltips; audit log section in FEATURE_SUGGESTIONS | ✅ Complete |
 | 2026-02-06 | Real-Time VWAP from Trader App (Idea #6) | Streaming VWAP proxy from trader app VwapCache; useStreamingVWAP hook; source indicator dot (green=stream, yellow=rest, gray=local); 2s polling | ✅ Complete |
 | 2026-02-05 | Fix #24: websockets stdout Logging Blocking | Stack dump revealed websockets library logging to stdout blocks event loop; redirected all third-party loggers to file only | ✅ Tentative |
@@ -35,4 +36,4 @@ This index tracks all development sessions for the Momentum Trader Charting comp
 
 ---
 
-**Last Updated**: 2026-02-11
+**Last Updated**: 2026-02-20
