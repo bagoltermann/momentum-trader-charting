@@ -203,7 +203,17 @@ export const useCandleDataStore = create<CandleDataState>((set, get) => ({
 
   updateStreamCandle: (candle: CandleWithVolume) => {
     const { primaryCandles, primaryRaw } = get()
-    if (primaryCandles.length === 0) return
+
+    // Seed from streaming when REST returned no data (e.g. OTC with zero candles)
+    if (primaryCandles.length === 0) {
+      const rawCandle: Candle = {
+        time: candle.time as number, open: candle.open as number,
+        high: candle.high as number, low: candle.low as number,
+        close: candle.close as number, volume: candle.volume
+      }
+      set({ primaryCandles: [candle], primaryRaw: [rawCandle], currentStreamCandle: candle, primaryError: null })
+      return
+    }
 
     const lastCandle = primaryCandles[primaryCandles.length - 1]
 
