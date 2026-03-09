@@ -1,9 +1,12 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { Header } from './components/layout/Header'
+import type { ViewMode } from './components/layout/Header'
 import { Sidebar } from './components/layout/Sidebar'
+import { SignalsSidebar } from './components/layout/SignalsSidebar'
 import { MultiChartGrid } from './components/charts/MultiChartGrid'
 import { WatchlistHeatmap } from './components/panels/WatchlistHeatmap'
 import { RunnersPanel } from './components/panels/RunnersPanel'
+import { PositionsPanel } from './components/panels/PositionsPanel'
 import { AnalysisPanels } from './components/panels/AnalysisPanels'
 import { StatusBar } from './components/layout/StatusBar'
 import { useWatchlistStore } from './store/watchlistStore'
@@ -14,6 +17,7 @@ import { useRotationDiscovery } from './hooks/useRotationDiscovery'
 import { DiscoveryPanel } from './components/panels/DiscoveryPanel'
 import { useVolumeSpikeAlerts } from './hooks/useVolumeSpikeAlerts'
 import { useStreamingHealth } from './hooks/useStreamingHealth'
+import { useSignalsPositions } from './hooks/useSignalsPositions'
 
 function App() {
   const { watchlist, fetchWatchlist, connectionStatus } = useWatchlistStore()
@@ -27,6 +31,9 @@ function App() {
   const rotationStats = useRotationDiscovery()
   const { activeSpikes, spikingSymbols } = useVolumeSpikeAlerts()
   const streamingHealth = useStreamingHealth()
+  const [viewMode, setViewMode] = useState<ViewMode>('watchlist')
+  const toggleViewMode = useCallback(() => setViewMode(m => m === 'watchlist' ? 'signals' : 'watchlist'), [])
+  const { signals, positions } = useSignalsPositions(viewMode === 'signals')
   const volumeSpike = selectedSymbol ? activeSpikes.get(selectedSymbol) ?? null : null
 
   // Get top 4 runners by quality score for secondary charts (excluding selected symbol)
@@ -107,19 +114,29 @@ function App() {
 
   return (
     <div className="app-container">
-      <Header />
+      <Header viewMode={viewMode} onToggleViewMode={toggleViewMode} />
       <div className="main-content">
         <div className="left-column">
-          <Sidebar
-            watchlist={watchlist}
-            selectedSymbol={selectedSymbol}
-            onSelectSymbol={setSelectedSymbol}
-            spikingSymbols={spikingSymbols}
-          />
-          <DiscoveryPanel
-            rotationStats={rotationStats}
-            onSelectSymbol={setSelectedSymbol}
-          />
+          {viewMode === 'watchlist' ? (
+            <Sidebar
+              watchlist={watchlist}
+              selectedSymbol={selectedSymbol}
+              onSelectSymbol={setSelectedSymbol}
+              spikingSymbols={spikingSymbols}
+            />
+          ) : (
+            <SignalsSidebar
+              signals={signals}
+              selectedSymbol={selectedSymbol}
+              onSelectSymbol={setSelectedSymbol}
+            />
+          )}
+          {viewMode === 'watchlist' && (
+            <DiscoveryPanel
+              rotationStats={rotationStats}
+              onSelectSymbol={setSelectedSymbol}
+            />
+          )}
         </div>
         <div className="center-content">
           <MultiChartGrid
@@ -134,10 +151,18 @@ function App() {
             runners={runners}
           />
         </div>
-        <RunnersPanel
-          selectedSymbol={selectedSymbol}
-          onSelectSymbol={setSelectedSymbol}
-        />
+        {viewMode === 'watchlist' ? (
+          <RunnersPanel
+            selectedSymbol={selectedSymbol}
+            onSelectSymbol={setSelectedSymbol}
+          />
+        ) : (
+          <PositionsPanel
+            positions={positions}
+            selectedSymbol={selectedSymbol}
+            onSelectSymbol={setSelectedSymbol}
+          />
+        )}
       </div>
       <WatchlistHeatmap
         watchlist={watchlist}

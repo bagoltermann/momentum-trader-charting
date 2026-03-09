@@ -221,6 +221,67 @@ async def get_streaming_health():
         return {"connected": False, "error": "fetch_error"}
 
 
+# ==================== Signals & Positions Proxy (v2.10.0) ====================
+
+
+@router.get("/signals")
+async def get_signals():
+    """
+    Proxy active trading signals from trader app.
+
+    Returns non-expired signals with entry/stop/target levels,
+    pattern type, risk/reward, and position sizing.
+    """
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(5.0, connect=2.0),
+            http2=False
+        ) as client:
+            response = await asyncio.wait_for(
+                client.get(f"{_TRADER_API_BASE}/api/signals"),
+                timeout=5.0
+            )
+            if response.status_code == 200:
+                return response.json()
+            return []
+    except httpx.ConnectError:
+        return []
+    except asyncio.TimeoutError:
+        return []
+    except Exception as e:
+        _logger.warning(f"Signals fetch failed: {e}")
+        return []
+
+
+@router.get("/positions")
+async def get_positions():
+    """
+    Proxy open positions from trader app.
+
+    Returns current positions with entry price, current price,
+    unrealized P&L, stop/target levels, and warning status.
+    """
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(5.0, connect=2.0),
+            http2=False
+        ) as client:
+            response = await asyncio.wait_for(
+                client.get(f"{_TRADER_API_BASE}/api/positions"),
+                timeout=5.0
+            )
+            if response.status_code == 200:
+                return response.json()
+            return []
+    except httpx.ConnectError:
+        return []
+    except asyncio.TimeoutError:
+        return []
+    except Exception as e:
+        _logger.warning(f"Positions fetch failed: {e}")
+        return []
+
+
 @router.get("/candles/{symbol}")
 async def get_candles(symbol: str, timeframe: str = "1m"):
     """

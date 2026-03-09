@@ -2,7 +2,14 @@ import { useWatchlistStore } from '../../store/watchlistStore'
 import { useChartStore } from '../../store/chartStore'
 import { useValidationStore } from '../../store/validationStore'
 
-export function Header() {
+export type ViewMode = 'watchlist' | 'signals'
+
+interface HeaderProps {
+  viewMode: ViewMode
+  onToggleViewMode: () => void
+}
+
+export function Header({ viewMode, onToggleViewMode }: HeaderProps) {
   const { connectionStatus, lastUpdate } = useWatchlistStore()
   const { selectedSymbol } = useChartStore()
   const { validateManual, isManualValidating, llmAvailable } = useValidationStore()
@@ -39,6 +46,13 @@ export function Header() {
             Last update: {lastUpdate.toLocaleTimeString()}
           </span>
         )}
+        <button
+          className={`signals-toggle-btn ${viewMode === 'signals' ? 'active' : ''}`}
+          onClick={onToggleViewMode}
+          title={viewMode === 'watchlist' ? 'Switch to Signals & Positions' : 'Switch to Watchlist'}
+        >
+          {viewMode === 'watchlist' ? 'Signals' : 'Watchlist'}
+        </button>
         <button
           className="validate-btn"
           onClick={() => selectedSymbol && validateManual(selectedSymbol)}

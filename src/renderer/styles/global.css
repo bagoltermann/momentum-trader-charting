@@ -134,6 +134,28 @@ body {
   color: white;
 }
 
+/* Signals toggle button */
+.signals-toggle-btn {
+  background: rgba(156, 39, 176, 0.2);
+  color: #CE93D8;
+  border: 1px solid #CE93D8;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.signals-toggle-btn:hover {
+  background: rgba(156, 39, 176, 0.4);
+}
+
+.signals-toggle-btn.active {
+  background: #CE93D8;
+  color: #1a1a2e;
+  font-weight: 600;
+}
+
 /* Sidebar styles */
 /* Left column - sidebar + discovery panel */
 .left-column {
@@ -240,6 +262,72 @@ body {
 
 .symbol-item .quality-score.low {
   color: var(--text-secondary);
+}
+
+/* Signal items in sidebar */
+.signal-item {
+  display: flex;
+  gap: 6px;
+}
+
+.signal-item .signal-pattern {
+  font-size: 10px;
+  color: var(--text-secondary);
+  min-width: 32px;
+}
+
+.signal-item .signal-entry {
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.signal-item .signal-rr {
+  font-size: 10px;
+  font-weight: 600;
+  min-width: 24px;
+  text-align: right;
+}
+
+.signal-item .signal-rr.high {
+  color: var(--accent-green);
+}
+
+.signal-item .signal-rr.low {
+  color: var(--accent-yellow);
+}
+
+.signal-item .signal-expiry {
+  font-size: 10px;
+  color: var(--text-secondary);
+  opacity: 0.7;
+}
+
+.signal-empty,
+.position-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+/* Position card P&L */
+.position-card .pnl.positive {
+  color: var(--accent-green);
+}
+
+.position-card .pnl.negative {
+  color: var(--accent-red);
+}
+
+.position-card .position-shares {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.position-card .position-warning {
+  font-size: 10px;
+  color: var(--accent-yellow);
+  text-transform: uppercase;
 }
 
 /* Discovery panel - rotation scanner results */
