@@ -4,6 +4,7 @@ interface WatchlistItem {
   price?: number
   high?: number
   gap_percent?: number
+  quality_score?: number
 }
 
 interface SidebarProps {
@@ -40,6 +41,11 @@ export function Sidebar({ watchlist, selectedSymbol, onSelectSymbol, spikingSymb
             <span className={`gap ${(stock.gap_percent ?? 0) >= 0 ? 'positive' : 'negative'}`}>
               {stock.gap_percent?.toFixed(0)}%
             </span>
+            {stock.quality_score != null && (
+              <span className={`quality-score ${stock.quality_score >= 7 ? 'high' : stock.quality_score >= 4 ? 'mid' : 'low'}`}>
+                Q:{stock.quality_score}
+              </span>
+            )}
           </li>
         ))}
       </ul>

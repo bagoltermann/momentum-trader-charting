@@ -1113,7 +1113,36 @@ Trader app streaming pipeline now has **consumer gating** (v1.75.0):
 
 The charting app's SocketIO quote stream is **unaffected** (all tiers emit `quote_update` events). But backend caches (VWAP, candles) are only updated for persistent/priority tier symbols.
 
+### Audit: 2026-03-09
+
+**Trader app versions reviewed**: v1.84.4 through v1.96.0.1 (20 commits)
+
+#### Breaking Changes Assessed
+
+| Change | Version | Impact | Status |
+|--------|---------|--------|--------|
+| Delta-aware streaming | v1.95.0 | Schwab sends partial updates (price-only, volume-only deltas) | **SAFE** - `useStreamingQuotes.ts` guards with `!quote.trade_time_ms \|\| !quote.last_price` |
+| OTC foreign symbol filter | v1.84.4 | Symbols 4+ chars ending in F/Y blocked at scan boundary | **BENEFICIAL** - eliminates "No trades yet" symbols from watchlist |
+
+#### New Capabilities Available
+
+| Feature | Version | API Status | Charting App Opportunity |
+|---------|---------|------------|--------------------------|
+| Streaming Health Watchdog | v1.94.0 | `/api/streaming/health` ready | **IMPLEMENTED** (2026-03-09) — Feed status in StatusBar |
+| quality_score fix | v1.95.0.3 | Via `/api/watchlist` (was always 0, now correct) | **IMPLEMENTED** (2026-03-09) — Q:N badge in Sidebar |
+| wall_classification | v1.95.0.3 | Via `/api/watchlist` | Available for future level analysis display |
+| momentum_phase | v1.95.0.3 | Via `/api/watchlist` | Available for phase indicator in chart overlay |
+
+#### Key Architecture Note
+
+Trader app now has **streaming data flow watchdog** (v1.94.0):
+- Detects silent WebSocket death (connected but no data flowing)
+- Triggered by UVIX incident: 2.5hrs of frozen prices with no error
+- Charting app now surfaces this via `Feed: LIVE/DELAYED/STALE` in StatusBar
+
+OTC foreign symbol filter (v1.84.4) eliminates non-streamable symbols at scan boundary, preventing "No trades yet" errors in charting app. Driven by SYAXF incident.
+
 ---
 
-**Last Updated**: 2026-02-21
+**Last Updated**: 2026-03-09
 **Maintain this file** as features are implemented and new ideas emerge

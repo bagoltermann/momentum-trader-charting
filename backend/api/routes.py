@@ -189,6 +189,38 @@ async def get_active_volume_spikes():
     return {"spikes": _quote_relay.get_active_spikes()}
 
 
+# ==================== Streaming Health (v2.9.0) ====================
+
+
+@router.get("/streaming/health")
+async def get_streaming_health():
+    """
+    Proxy streaming health status from trader app's data flow watchdog.
+
+    Returns connection state, last message age, and watchdog kill count.
+    Used by frontend to show LIVE/DELAYED/STALE feed status.
+    """
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(5.0, connect=2.0),
+            http2=False
+        ) as client:
+            response = await asyncio.wait_for(
+                client.get(f"{_TRADER_API_BASE}/api/streaming/health"),
+                timeout=5.0
+            )
+            if response.status_code == 200:
+                return response.json()
+            return {"connected": False, "error": "trader_app_error"}
+    except httpx.ConnectError:
+        return {"connected": False, "error": "trader_app_unavailable"}
+    except asyncio.TimeoutError:
+        return {"connected": False, "error": "timeout"}
+    except Exception as e:
+        _logger.warning(f"Streaming health fetch failed: {e}")
+        return {"connected": False, "error": "fetch_error"}
+
+
 @router.get("/candles/{symbol}")
 async def get_candles(symbol: str, timeframe: str = "1m"):
     """

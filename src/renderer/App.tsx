@@ -13,6 +13,7 @@ import { useValidationStore } from './store/validationStore'
 import { useRotationDiscovery } from './hooks/useRotationDiscovery'
 import { DiscoveryPanel } from './components/panels/DiscoveryPanel'
 import { useVolumeSpikeAlerts } from './hooks/useVolumeSpikeAlerts'
+import { useStreamingHealth } from './hooks/useStreamingHealth'
 
 function App() {
   const { watchlist, fetchWatchlist, connectionStatus } = useWatchlistStore()
@@ -25,6 +26,7 @@ function App() {
   } = useValidationStore()
   const rotationStats = useRotationDiscovery()
   const { activeSpikes, spikingSymbols } = useVolumeSpikeAlerts()
+  const streamingHealth = useStreamingHealth()
   const volumeSpike = selectedSymbol ? activeSpikes.get(selectedSymbol) ?? null : null
 
   // Get top 4 runners by quality score for secondary charts (excluding selected symbol)
@@ -141,7 +143,7 @@ function App() {
         watchlist={watchlist}
         onSelectSymbol={setSelectedSymbol}
       />
-      <StatusBar connectionStatus={connectionStatus} rotationStats={rotationStats} />
+      <StatusBar connectionStatus={connectionStatus} rotationStats={rotationStats} streamingHealth={streamingHealth} />
     </div>
   )
 }

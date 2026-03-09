@@ -222,6 +222,26 @@ body {
   color: var(--accent-red);
 }
 
+.symbol-item .quality-score {
+  font-size: 10px;
+  font-weight: 600;
+  min-width: 24px;
+  text-align: right;
+  opacity: 0.8;
+}
+
+.symbol-item .quality-score.high {
+  color: var(--accent-green);
+}
+
+.symbol-item .quality-score.mid {
+  color: #FFC107;
+}
+
+.symbol-item .quality-score.low {
+  color: var(--text-secondary);
+}
+
 /* Discovery panel - rotation scanner results */
 .discovery-panel {
   background: var(--bg-secondary);
