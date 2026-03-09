@@ -56,7 +56,9 @@ interface PositionCardProps {
 }
 
 function PositionCard({ position: pos, isSelected, onClick }: PositionCardProps) {
-  const pnlPositive = pos.unrealized_pnl >= 0
+  const pnl = pos.unrealized_pnl ?? 0
+  const pnlPct = pos.unrealized_pnl_percent ?? 0
+  const pnlPositive = pnl >= 0
 
   return (
     <div
@@ -65,30 +67,30 @@ function PositionCard({ position: pos, isSelected, onClick }: PositionCardProps)
     >
       <div className="runner-card-header">
         <span className="runner-symbol">{pos.symbol}</span>
-        <span className="position-shares">{pos.shares} shr</span>
+        <span className="position-shares">{pos.shares ?? 0} shr</span>
       </div>
       <div className="runner-card-body">
         <div className="runner-row">
           <span className="runner-label">Entry</span>
-          <span className="runner-value">${pos.avg_price.toFixed(2)}</span>
+          <span className="runner-value">${pos.avg_price?.toFixed(2) ?? '—'}</span>
         </div>
         <div className="runner-row">
           <span className="runner-label">Current</span>
-          <span className="runner-value">${pos.current_price.toFixed(2)}</span>
+          <span className="runner-value">${pos.current_price?.toFixed(2) ?? '—'}</span>
         </div>
         <div className="runner-row">
           <span className="runner-label">P&L</span>
           <span className={`runner-value pnl ${pnlPositive ? 'positive' : 'negative'}`}>
-            {pnlPositive ? '+' : ''}{pos.unrealized_pnl.toFixed(2)} ({pnlPositive ? '+' : ''}{pos.unrealized_pnl_percent.toFixed(1)}%)
+            {pnlPositive ? '+' : ''}{pnl.toFixed(2)} ({pnlPositive ? '+' : ''}{pnlPct.toFixed(1)}%)
           </span>
         </div>
         <div className="runner-row">
           <span className="runner-label">Stop</span>
-          <span className="runner-value">${pos.stop_loss.toFixed(2)}</span>
+          <span className="runner-value">${pos.stop_loss?.toFixed(2) ?? '—'}</span>
         </div>
         <div className="runner-row">
           <span className="runner-label">Target</span>
-          <span className="runner-value">${pos.profit_target.toFixed(2)}</span>
+          <span className="runner-value">${pos.profit_target?.toFixed(2) ?? '—'}</span>
         </div>
       </div>
       {pos.warning_level && pos.warning_level !== 'healthy' && (

@@ -6,7 +6,8 @@ interface SignalsSidebarProps {
   onSelectSymbol: (symbol: string) => void
 }
 
-function formatPattern(pattern: string): string {
+function formatPattern(pattern: string | undefined): string {
+  if (!pattern) return '—'
   const map: Record<string, string> = {
     'micro_pullback_breakout': 'MPB',
     'first_pullback': '1st PB',
@@ -17,7 +18,8 @@ function formatPattern(pattern: string): string {
   return map[pattern] || pattern.replace(/_/g, ' ').slice(0, 10)
 }
 
-function timeRemaining(expiresAt: string): string {
+function timeRemaining(expiresAt: string | undefined): string {
+  if (!expiresAt) return '—'
   const diff = new Date(expiresAt).getTime() - Date.now()
   if (diff <= 0) return 'exp'
   const mins = Math.floor(diff / 60000)
@@ -41,9 +43,9 @@ export function SignalsSidebar({ signals, selectedSymbol, onSelectSymbol }: Sign
           >
             <span className="symbol">{sig.symbol}</span>
             <span className="signal-pattern">{formatPattern(sig.pattern)}</span>
-            <span className="signal-entry">${sig.entry_price.toFixed(2)}</span>
-            <span className={`signal-rr ${sig.risk_reward_ratio >= 2 ? 'high' : 'low'}`}>
-              {sig.risk_reward_ratio.toFixed(1)}R
+            <span className="signal-entry">${sig.entry_price?.toFixed(2) ?? '—'}</span>
+            <span className={`signal-rr ${(sig.risk_reward_ratio ?? 0) >= 2 ? 'high' : 'low'}`}>
+              {sig.risk_reward_ratio?.toFixed(1) ?? '—'}R
             </span>
             <span className="signal-expiry">{timeRemaining(sig.expires_at)}</span>
           </li>

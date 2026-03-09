@@ -14,33 +14,33 @@ const POSITIONS_API = 'http://localhost:8081/api/positions'
 
 export interface Signal {
   symbol: string
-  pattern: string
-  signal_type: string
-  entry_price: number
-  stop_loss: number
-  profit_target: number
-  risk_reward_ratio: number
-  gap_percent: number
-  relative_volume: number
-  timestamp: string
-  expires_at: string
-  quantity: number
-  risk_amount: number
+  pattern?: string
+  signal_type?: string
+  entry_price?: number
+  stop_loss?: number
+  profit_target?: number
+  risk_reward_ratio?: number
+  gap_percent?: number
+  relative_volume?: number
+  timestamp?: string
+  expires_at?: string
+  quantity?: number
+  risk_amount?: number
 }
 
 export interface Position {
   symbol: string
-  shares: number
-  avg_price: number
-  current_price: number
-  entry_price: number
-  stop_loss: number
-  profit_target: number
-  unrealized_pnl: number
-  unrealized_pnl_percent: number
-  market_value: number
-  warning_level: string
-  entry_time: string
+  shares?: number
+  avg_price?: number
+  current_price?: number
+  entry_price?: number
+  stop_loss?: number
+  profit_target?: number
+  unrealized_pnl?: number
+  unrealized_pnl_percent?: number
+  market_value?: number
+  warning_level?: string
+  entry_time?: string
 }
 
 interface SignalsPositionsState {
