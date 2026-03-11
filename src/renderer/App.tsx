@@ -36,14 +36,21 @@ function App() {
   const { signals, positions } = useSignalsPositions(viewMode === 'signals')
   const volumeSpike = selectedSymbol ? activeSpikes.get(selectedSymbol) ?? null : null
 
-  // Get top 4 runners by quality score for secondary charts (excluding selected symbol)
+  // Get top 4 symbols for secondary charts (excluding selected symbol)
+  // In signals mode: show signal stocks; in watchlist mode: show top runners by quality
   const secondaryRunnerSymbols = useMemo(() => {
+    if (viewMode === 'signals') {
+      return signals
+        .filter(s => s.symbol !== selectedSymbol)
+        .slice(0, 4)
+        .map(s => s.symbol)
+    }
     return runners
       .filter(r => r.symbol !== selectedSymbol)
       .sort((a, b) => b.quality_score - a.quality_score)
       .slice(0, 4)
       .map(r => r.symbol)
-  }, [runners, selectedSymbol])
+  }, [runners, signals, selectedSymbol, viewMode])
 
   // Convert runners array to map for validation store
   const runnersData = useMemo(() => {
