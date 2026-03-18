@@ -103,7 +103,7 @@ class LLMValidator:
     """
     Validates stock setups using LLM analysis.
 
-    Uses Ollama with qwen2.5:7b model (same as momentum-trader).
+    Uses Ollama with qwen3:8b model (same as momentum-trader).
     Loads prompts from config/prompts/validation_prompt.yaml.
     """
 
@@ -151,7 +151,7 @@ class LLMValidator:
         base_url = base_url.replace("localhost", "127.0.0.1")
         self._provider_config = {
             'base_url': base_url,
-            'model': ollama_config.get('model', 'qwen2.5:7b'),
+            'model': ollama_config.get('model', 'qwen3:8b'),
             'max_tokens': ollama_config.get('max_tokens', 1000),
             'temperature': ollama_config.get('temperature', 0.3),
         }
@@ -171,7 +171,7 @@ class LLMValidator:
                 if not hasattr(self, '_provider_config'):
                     self._provider_config = {
                         'base_url': 'http://127.0.0.1:11434',  # Force IPv4
-                        'model': 'qwen2.5:7b',
+                        'model': 'qwen3:8b',
                         'max_tokens': 1000,
                         'temperature': 0.3,
                     }

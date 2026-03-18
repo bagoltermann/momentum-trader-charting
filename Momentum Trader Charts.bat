@@ -167,7 +167,7 @@ echo llm:
 echo   enabled: true
 echo   ollama:
 echo     base_url: "http://localhost:11434"
-echo     model: "qwen2.5:7b"
+echo     model: "qwen3:8b"
 echo     max_tokens: 1000
 echo     temperature: 0.3
 ) > "%CHARTING_DIR%\config\charting.yaml"

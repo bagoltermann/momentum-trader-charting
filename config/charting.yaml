@@ -30,6 +30,6 @@ llm:
   enabled: true
   ollama:
     base_url: "http://localhost:11434"
-    model: "qwen2.5:7b"
+    model: "qwen3:8b"
     max_tokens: 1000
     temperature: 0.3
